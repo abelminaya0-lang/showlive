@@ -86,7 +86,7 @@ function formatSeconds(sec?: number): string {
 async function fetchWithTimeout(
   url: string,
   init: RequestInit,
-  timeoutMs = 7000
+  timeoutMs = 3800
 ): Promise<Response> {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
@@ -104,7 +104,7 @@ async function searchViaYouTubeDataApi(
   const url = `https://www.googleapis.com/youtube/v3/search?part=snippet&type=video&videoEmbeddable=true&maxResults=15&q=${encodeURIComponent(
     query
   )}&key=${encodeURIComponent(apiKey)}`;
-  const res = await fetchWithTimeout(url, { method: 'GET' }, 7000);
+  const res = await fetchWithTimeout(url, { method: 'GET' }, 4000);
   if (!res.ok) return [];
   const data = await res.json();
   if (!Array.isArray(data.items)) return [];
@@ -147,7 +147,7 @@ async function searchViaInnerTube(query: string): Promise<YouTubeSearchItem[]> {
         query,
       }),
     },
-    7000
+    3800
   );
   if (!res.ok) return [];
   const json = await res.json();
@@ -168,7 +168,7 @@ async function searchViaYouTubeHtml(query: string): Promise<YouTubeSearchItem[]>
         Cookie: 'SOCS=CAI; CONSENT=YES+cb.20210328-17-p0.en+FX+999',
       },
     },
-    7500
+    4000
   );
   if (!ytRes.ok) return [];
   const html = await ytRes.text();
@@ -187,66 +187,39 @@ async function searchViaPipedOrInvidious(
   query: string
 ): Promise<YouTubeSearchItem[]> {
   const pipedMirrors = [
-    `https://pipedapi.kavin.rocks/search?q=${encodeURIComponent(query)}&filter=videos`,
-    `https://pipedapi.adminforge.de/search?q=${encodeURIComponent(query)}&filter=videos`,
+    `https://api.piped.private.coffee/search?q=${encodeURIComponent(query)}&filter=videos`,
+    `https://pipedapi.ducks.party/search?q=${encodeURIComponent(query)}&filter=videos`,
   ];
 
-  for (const url of pipedMirrors) {
-    try {
-      const res = await fetchWithTimeout(url, { method: 'GET' }, 5000);
-      if (!res.ok) continue;
-      const data = await res.json();
-      const rawItems = Array.isArray(data?.items) ? data.items : [];
-      const mapped: YouTubeSearchItem[] = rawItems
-        .map((it: any) => {
-          const match = String(it?.url || '').match(/v=([A-Za-z0-9_-]{11})/);
-          const videoId = match?.[1];
-          if (!videoId) return null;
-          return {
-            videoId,
-            title: it.title || 'YouTube Video',
-            channel: it.uploaderName || 'YouTube',
-            duration: formatSeconds(it.duration),
-            thumbnail: `https://i.ytimg.com/vi/${videoId}/hqdefault.jpg`,
-            views: it.views ? `${Number(it.views).toLocaleString()} vistas` : '',
-          };
-        })
-        .filter(Boolean) as YouTubeSearchItem[];
-      if (mapped.length > 0) return mapped.slice(0, 16);
-    } catch {
-      // Try next mirror
-    }
-  }
-
-  const invidiousMirrors = [
-    `https://invidious.nerdvpn.de/api/v1/search?q=${encodeURIComponent(query)}&type=video`,
-    `https://yt.artemislena.eu/api/v1/search?q=${encodeURIComponent(query)}&type=video`,
-  ];
-
-  for (const url of invidiousMirrors) {
-    try {
-      const res = await fetchWithTimeout(url, { method: 'GET' }, 5000);
-      if (!res.ok) continue;
-      const list = await res.json();
-      if (!Array.isArray(list)) continue;
-      const mapped: YouTubeSearchItem[] = list
-        .filter((it: any) => it?.videoId)
-        .slice(0, 16)
-        .map((it: any) => ({
-          videoId: it.videoId,
+  const pipedTasks = pipedMirrors.map(async (url) => {
+    const res = await fetchWithTimeout(url, { method: 'GET' }, 4000);
+    if (!res.ok) throw new Error('Mirror failed');
+    const data = await res.json();
+    const rawItems = Array.isArray(data?.items) ? data.items : [];
+    const mapped: YouTubeSearchItem[] = rawItems
+      .map((it: any) => {
+        const match = String(it?.url || '').match(/v=([A-Za-z0-9_-]{11})/);
+        const videoId = match?.[1];
+        if (!videoId) return null;
+        return {
+          videoId,
           title: it.title || 'YouTube Video',
-          channel: it.author || 'YouTube',
-          duration: formatSeconds(it.lengthSeconds),
-          thumbnail: `https://i.ytimg.com/vi/${it.videoId}/hqdefault.jpg`,
-          views: it.viewCountText || '',
-        }));
-      if (mapped.length > 0) return mapped;
-    } catch {
-      // Try next mirror
-    }
-  }
+          channel: it.uploaderName || 'YouTube',
+          duration: formatSeconds(it.duration),
+          thumbnail: `https://i.ytimg.com/vi/${videoId}/hqdefault.jpg`,
+          views: it.views ? `${Number(it.views).toLocaleString()} vistas` : '',
+        };
+      })
+      .filter(Boolean) as YouTubeSearchItem[];
+    if (mapped.length === 0) throw new Error('Empty');
+    return mapped.slice(0, 16);
+  });
 
-  return [];
+  try {
+    return await Promise.any(pipedTasks);
+  } catch {
+    return [];
+  }
 }
 
 export async function searchYouTubeServer(
@@ -272,23 +245,23 @@ export async function searchYouTubeServer(
       const apiItems = await searchViaYouTubeDataApi(rawQuery, ytApiKey);
       if (apiItems.length > 0) return apiItems;
     } catch {
-      // Fall through to InnerTube
+      // Fall through to parallel race
     }
   }
 
-  try {
-    const innerItems = await searchViaInnerTube(rawQuery);
-    if (innerItems.length > 0) return innerItems;
-  } catch {
-    // Fall through to HTML
-  }
+  const requireItems = async (fn: () => Promise<YouTubeSearchItem[]>) => {
+    const items = await fn();
+    if (!items || items.length === 0) throw new Error('Empty');
+    return items;
+  };
 
   try {
-    const htmlItems = await searchViaYouTubeHtml(rawQuery);
-    if (htmlItems.length > 0) return htmlItems;
+    return await Promise.any([
+      requireItems(() => searchViaInnerTube(rawQuery)),
+      requireItems(() => searchViaPipedOrInvidious(rawQuery)),
+      requireItems(() => searchViaYouTubeHtml(rawQuery)),
+    ]);
   } catch {
-    // Fall through to Piped/Invidious
+    return [];
   }
-
-  return searchViaPipedOrInvidious(rawQuery);
 }

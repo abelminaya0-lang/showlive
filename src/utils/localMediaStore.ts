@@ -12,18 +12,32 @@ export interface PersistedLibraryState {
   activeBankId: string;
 }
 
+let dbPromise: Promise<IDBDatabase> | null = null;
+
 function openDb(): Promise<IDBDatabase> {
-  return new Promise((resolve, reject) => {
-    const req = indexedDB.open(DB_NAME, DB_VERSION);
-    req.onupgradeneeded = () => {
-      const db = req.result;
-      if (!db.objectStoreNames.contains(BLOB_STORE)) {
-        db.createObjectStore(BLOB_STORE);
-      }
-    };
-    req.onsuccess = () => resolve(req.result);
-    req.onerror = () => reject(req.error);
-  });
+  if (!dbPromise) {
+    dbPromise = new Promise((resolve, reject) => {
+      const req = indexedDB.open(DB_NAME, DB_VERSION);
+      req.onupgradeneeded = () => {
+        const db = req.result;
+        if (!db.objectStoreNames.contains(BLOB_STORE)) {
+          db.createObjectStore(BLOB_STORE);
+        }
+      };
+      req.onsuccess = () => {
+        const db = req.result;
+        db.onclose = () => {
+          dbPromise = null;
+        };
+        resolve(db);
+      };
+      req.onerror = () => {
+        dbPromise = null;
+        reject(req.error);
+      };
+    });
+  }
+  return dbPromise;
 }
 
 export async function saveMediaBlob(key: string, blob: Blob): Promise<void> {
@@ -35,23 +49,40 @@ export async function saveMediaBlob(key: string, blob: Blob): Promise<void> {
       tx.oncomplete = () => resolve();
       tx.onerror = () => reject(tx.error);
     });
-    db.close();
   } catch {
     // Ignore IndexedDB quota or private-mode errors
+  }
+}
+
+export async function saveMediaBlobsBatch(
+  entries: Array<{ key: string; blob: Blob }>
+): Promise<void> {
+  if (entries.length === 0) return;
+  try {
+    const db = await openDb();
+    await new Promise<void>((resolve, reject) => {
+      const tx = db.transaction(BLOB_STORE, 'readwrite');
+      const store = tx.objectStore(BLOB_STORE);
+      for (const entry of entries) {
+        store.put(entry.blob, entry.key);
+      }
+      tx.oncomplete = () => resolve();
+      tx.onerror = () => reject(tx.error);
+    });
+  } catch {
+    // Ignore
   }
 }
 
 export async function getMediaBlob(key: string): Promise<Blob | null> {
   try {
     const db = await openDb();
-    const blob = await new Promise<Blob | null>((resolve, reject) => {
+    return await new Promise<Blob | null>((resolve, reject) => {
       const tx = db.transaction(BLOB_STORE, 'readonly');
       const req = tx.objectStore(BLOB_STORE).get(key);
       req.onsuccess = () => resolve((req.result as Blob) || null);
       req.onerror = () => reject(req.error);
     });
-    db.close();
-    return blob;
   } catch {
     return null;
   }
@@ -66,7 +97,6 @@ export async function deleteMediaBlob(key: string): Promise<void> {
       tx.oncomplete = () => resolve();
       tx.onerror = () => reject(tx.error);
     });
-    db.close();
   } catch {
     // Ignore
   }
@@ -81,7 +111,6 @@ export async function clearAllMediaBlobs(): Promise<void> {
       tx.oncomplete = () => resolve();
       tx.onerror = () => reject(tx.error);
     });
-    db.close();
   } catch {
     // Ignore
   }
@@ -94,7 +123,7 @@ export function savePersistedState(state: PersistedLibraryState): void {
       activeBankId: state.activeBankId,
       tracks: state.tracks.map((t) => ({
         ...t,
-        // Strip transient object URLs before saving; rehydrated from IndexedDB on load
+        // Strip transient object URLs before saving; loaded lazily from IndexedDB when needed
         audioUrl: t.sourceType === 'file' ? undefined : t.audioUrl,
         videoUrl: t.sourceType === 'file' ? undefined : t.videoUrl,
       })),
@@ -118,43 +147,52 @@ export async function loadPersistedState(): Promise<PersistedLibraryState | null
     if (!raw) return null;
     const parsed = JSON.parse(raw) as PersistedLibraryState;
 
-    // Rehydrate track object URLs from IndexedDB
-    const rehydratedTracks: TrackItem[] = [];
-    for (const trk of parsed.tracks || []) {
-      if (trk.sourceType === 'file') {
-        const blob = await getMediaBlob(`track:${trk.id}`);
-        if (!blob) continue; // Skip missing local files
-        const url = URL.createObjectURL(blob);
-        rehydratedTracks.push({
-          ...trk,
-          audioUrl: trk.isVideo ? undefined : url,
-          videoUrl: trk.isVideo ? url : undefined,
-        });
-      } else {
-        rehydratedTracks.push(trk);
-      }
-    }
+    // Tracks metadata loads instantaneously; media Blobs are fetched on-demand when loaded to a Deck
+    const tracks = parsed.tracks || [];
 
-    // Rehydrate sampler pad custom audio URLs from IndexedDB
-    const rehydratedBanks: SamplerBank[] = [];
-    for (const bank of parsed.samplerBanks || []) {
-      const pads = await Promise.all(
-        bank.pads.map(async (pad) => {
-          if (pad.customAudioName) {
-            const blob = await getMediaBlob(`pad:${bank.id}:${pad.id}`);
-            if (blob) {
-              return { ...pad, customAudioUrl: URL.createObjectURL(blob) };
-            }
+    // Rehydrate only custom sampler pad audio in one shared IndexedDB transaction
+    const padKeys: Array<{ bankIdx: number; padIdx: number; key: string }> = [];
+    const banks = parsed.samplerBanks || [];
+    banks.forEach((bank, bankIdx) => {
+      bank.pads.forEach((pad, padIdx) => {
+        if (pad.customAudioName) {
+          padKeys.push({ bankIdx, padIdx, key: `pad:${bank.id}:${pad.id}` });
+        }
+      });
+    });
+
+    const rehydratedBanks: SamplerBank[] = banks.map((b) => ({
+      ...b,
+      pads: b.pads.map((p) => ({ ...p })),
+    }));
+
+    if (padKeys.length > 0) {
+      try {
+        const db = await openDb();
+        await new Promise<void>((resolve) => {
+          const tx = db.transaction(BLOB_STORE, 'readonly');
+          const store = tx.objectStore(BLOB_STORE);
+          for (const item of padKeys) {
+            const req = store.get(item.key);
+            req.onsuccess = () => {
+              const blob = req.result as Blob | undefined;
+              if (blob) {
+                rehydratedBanks[item.bankIdx].pads[item.padIdx].customAudioUrl =
+                  URL.createObjectURL(blob);
+              }
+            };
           }
-          return pad;
-        })
-      );
-      rehydratedBanks.push({ ...bank, pads });
+          tx.oncomplete = () => resolve();
+          tx.onerror = () => resolve();
+        });
+      } catch {
+        // Ignore IDB errors
+      }
     }
 
     return {
       playlists: parsed.playlists || [],
-      tracks: rehydratedTracks,
+      tracks,
       samplerBanks: rehydratedBanks,
       activeBankId: parsed.activeBankId || rehydratedBanks[0]?.id || '',
     };

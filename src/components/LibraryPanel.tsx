@@ -1,5 +1,6 @@
-import React, { useRef, useState } from 'react';
+import React, { useMemo, useRef, useState } from 'react';
 import {
+  Check,
   Download,
   Folder,
   FolderPlus,
@@ -47,11 +48,11 @@ interface LibraryPanelProps {
 }
 
 const QUICK_KARAOKE_QUERIES = [
-  'Salsa Karaoke',
-  'Cumbia Peruana Karaoke',
-  'Baladas Románticas Karaoke',
-  'Reggaeton Karaoke',
-  'Rock en Español Karaoke',
+  'Salsa',
+  'Cumbia Peruana',
+  'Baladas Románticas',
+  'Reggaeton',
+  'Rock en Español',
 ];
 
 export const LibraryPanel: React.FC<LibraryPanelProps> = ({
@@ -79,7 +80,8 @@ export const LibraryPanel: React.FC<LibraryPanelProps> = ({
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const folderInputRef = useRef<HTMLInputElement | null>(null);
   const [searchFilter, setSearchFilter] = useState('');
-  const [ytQuery, setYtQuery] = useState('Salsa Karaoke');
+  const [ytQuery, setYtQuery] = useState('');
+  const [karaokeOnly, setKaraokeOnly] = useState(true);
   const [creatingPlaylist, setCreatingPlaylist] = useState(false);
   const [newPlaylistName, setNewPlaylistName] = useState('');
   const [isDraggingFiles, setIsDraggingFiles] = useState(false);
@@ -102,12 +104,43 @@ export const LibraryPanel: React.FC<LibraryPanelProps> = ({
     setCreatingPlaylist(false);
   };
 
+  const runYoutubeSearch = (raw: string, useKaraoke: boolean) => {
+    const base = raw.trim();
+    if (!base) return;
+    const isDirectYt =
+      /(?:youtube\.com|youtu\.be)\//i.test(base) ||
+      /^[A-Za-z0-9_-]{11}$/.test(base);
+    if (isDirectYt) {
+      onSearchYoutube(base);
+      return;
+    }
+    const finalQuery = useKaraoke
+      ? /\bkaraoke\b/i.test(base)
+        ? base
+        : `${base} karaoke`
+      : base.replace(/\bkaraoke\b/gi, '').replace(/\s{2,}/g, ' ').trim() || base;
+    onSearchYoutube(finalQuery);
+  };
+
   const handleYoutubeSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    if (ytQuery.trim()) {
-      onSearchYoutube(ytQuery.trim());
-    }
+    runYoutubeSearch(ytQuery, karaokeOnly);
   };
+
+  const displayedYtResults = useMemo(() => {
+    if (ytResults.length <= 1) return ytResults;
+    const karaokeRegex = /\b(karaoke|pista|instrumental|version karaoke)\b/i;
+    if (karaokeOnly) {
+      const onlyKaraoke = ytResults.filter(
+        (v) => karaokeRegex.test(v.title) || karaokeRegex.test(v.channel)
+      );
+      return onlyKaraoke.length >= 3 ? onlyKaraoke : ytResults;
+    }
+    const nonKaraoke = ytResults.filter(
+      (v) => !/\bkaraoke\b/i.test(v.title) && !/\bkaraoke\b/i.test(v.channel)
+    );
+    return nonKaraoke.length >= 3 ? nonKaraoke : ytResults;
+  }, [ytResults, karaokeOnly]);
 
   return (
     <div className="flex-1 min-w-0 bg-[#0A0C12] border border-white/10 rounded-lg flex flex-col md:flex-row overflow-hidden">
@@ -462,26 +495,64 @@ export const LibraryPanel: React.FC<LibraryPanelProps> = ({
           /* YOUTUBE KARAOKE SEARCH VIEW */
           <div className="flex-1 flex flex-col min-h-0">
             <div className="p-3.5 border-b border-white/10 bg-[#0D1018] flex flex-col gap-2.5">
+              <p className="font-display text-sm font-bold text-white leading-none">
+                Buscador de Karaoke
+              </p>
+
               <form onSubmit={handleYoutubeSubmit} className="flex items-center gap-2">
-                <div className="relative flex-1">
-                  <Search className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
+                <div className="flex-1 min-w-0 flex items-center gap-2 pl-3 pr-1.5 py-1 rounded-md bg-[#121622] border border-white/15 focus-within:border-[#F4256A]/70 transition-colors">
+                  <Search className="w-4 h-4 text-slate-400 shrink-0" />
                   <input
                     type="text"
                     value={ytQuery}
                     onChange={(e) => setYtQuery(e.target.value)}
-                    placeholder="Buscar karaoke en YouTube o pegar URL de video..."
-                    className="w-full pl-9 pr-3 py-2 rounded-md bg-[#121622] border border-white/10 text-xs sm:text-sm text-white placeholder:text-slate-500 focus:outline-none focus:border-red-500/70"
+                    placeholder="Buscar canción..."
+                    className="flex-1 min-w-0 py-1 bg-transparent text-xs sm:text-sm text-white placeholder:text-slate-500 focus:outline-none"
                   />
+                  <button
+                    type="button"
+                    role="checkbox"
+                    aria-checked={karaokeOnly}
+                    onClick={() => {
+                      const next = !karaokeOnly;
+                      setKaraokeOnly(next);
+                      if (ytQuery.trim()) {
+                        runYoutubeSearch(ytQuery, next);
+                      }
+                    }}
+                    className={`shrink-0 inline-flex items-center gap-1.5 px-2.5 py-1 rounded border text-xs font-medium transition-colors cursor-pointer select-none ${
+                      karaokeOnly
+                        ? 'bg-[#1A1D28] border-white/15 text-slate-100'
+                        : 'bg-[#141720] border-white/10 text-slate-400 hover:text-slate-200'
+                    }`}
+                    title={
+                      karaokeOnly
+                        ? 'Solo Karaoke activado (clic para buscar sin karaoke)'
+                        : 'Sin Karaoke activado (clic para buscar solo karaoke)'
+                    }
+                  >
+                    <span
+                      className={`w-4 h-4 rounded-[4px] flex items-center justify-center transition-colors ${
+                        karaokeOnly
+                          ? 'bg-[#F4256A] text-white'
+                          : 'bg-[#0B0D14] border border-slate-500/70 text-transparent'
+                      }`}
+                    >
+                      <Check className="w-3 h-3 stroke-[3]" />
+                    </span>
+                    <span>Karaoke</span>
+                  </button>
                 </div>
+
                 <button
                   type="submit"
                   disabled={ytLoading}
-                  className="px-4 py-2 rounded-md bg-red-600 hover:bg-red-500 disabled:opacity-60 text-white text-xs font-bold flex items-center gap-1.5 cursor-pointer whitespace-nowrap"
+                  className="px-4 py-2 rounded-md bg-[#DC2626] hover:bg-[#EF4444] disabled:opacity-60 text-white text-xs sm:text-sm font-bold flex items-center gap-1.5 cursor-pointer whitespace-nowrap transition-colors"
                 >
                   {ytLoading ? (
-                    <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                    <Loader2 className="w-4 h-4 animate-spin" />
                   ) : (
-                    <Search className="w-3.5 h-3.5" />
+                    <Search className="w-4 h-4" />
                   )}
                   <span>Buscar</span>
                 </button>
@@ -494,7 +565,7 @@ export const LibraryPanel: React.FC<LibraryPanelProps> = ({
                     type="button"
                     onClick={() => {
                       setYtQuery(q);
-                      onSearchYoutube(q);
+                      runYoutubeSearch(q, karaokeOnly);
                     }}
                     className="px-2.5 py-1 rounded bg-[#141824] hover:bg-[#1E2436] border border-white/10 text-[11px] text-slate-300 hover:text-white whitespace-nowrap cursor-pointer"
                   >
@@ -514,22 +585,26 @@ export const LibraryPanel: React.FC<LibraryPanelProps> = ({
               {ytLoading ? (
                 <div className="h-44 flex items-center justify-center gap-2 text-xs text-slate-400">
                   <Loader2 className="w-4 h-4 animate-spin text-red-400" />
-                  <span>Buscando karaokes en YouTube...</span>
+                  <span>
+                    {karaokeOnly
+                      ? 'Buscando solo karaokes en YouTube...'
+                      : 'Buscando canciones en YouTube...'}
+                  </span>
                 </div>
-              ) : ytResults.length === 0 ? (
+              ) : displayedYtResults.length === 0 ? (
                 <div className="h-48 flex flex-col items-center justify-center text-center p-6">
                   <Sparkles className="w-7 h-7 text-red-400 mb-2" />
                   <p className="text-sm font-medium text-slate-200">
-                    Busca cualquier canción en YouTube Karaoke
+                    Busca cualquier canción en YouTube
                   </p>
                   <p className="text-xs text-slate-400 mt-1 max-w-md">
-                    Escribe el título y artista (o pega directamente un link de YouTube) y
-                    cárgalo directo a Deck A o Deck B para proyectar en vivo.
+                    Escribe el título y artista, marca o desmarca Karaoke y cárgalo directo a
+                    Deck A o Deck B para proyectar en vivo.
                   </p>
                 </div>
               ) : (
                 <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
-                  {ytResults.map((vid) => (
+                  {displayedYtResults.map((vid) => (
                     <div
                       key={vid.videoId}
                       className="rounded-lg border border-white/10 bg-[#10131C] overflow-hidden flex flex-col"

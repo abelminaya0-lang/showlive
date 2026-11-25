@@ -144,7 +144,7 @@ export const DeckPanel: React.FC<DeckPanelProps> = ({
     audioEngine.setDeckStemMode(deck.id, deck.stemMode);
   }, [deck.id, deck.stemMode]);
 
-  // Real-time 60fps audio spectrum visualizer
+  // Real-time 60fps audio spectrum visualizer (runs rAF loop only while playing)
   useEffect(() => {
     const canvas = canvasRef.current;
     if (!canvas) return;
@@ -152,7 +152,7 @@ export const DeckPanel: React.FC<DeckPanelProps> = ({
     if (!ctx2d) return;
 
     let rafId = 0;
-    const draw = () => {
+    const drawFrame = () => {
       const w = canvas.width;
       const h = canvas.height;
       ctx2d.clearRect(0, 0, w, h);
@@ -182,7 +182,6 @@ export const DeckPanel: React.FC<DeckPanelProps> = ({
         ctx2d.fill();
       }
 
-      // Subtle center pulse ring when audio is playing
       if (deck.isPlaying && level > 0.05) {
         ctx2d.strokeStyle =
           deck.id === 'A'
@@ -193,13 +192,20 @@ export const DeckPanel: React.FC<DeckPanelProps> = ({
         ctx2d.arc(w / 2, h * 0.36, 28 + level * 22, 0, Math.PI * 2);
         ctx2d.stroke();
       }
-
-      rafId = requestAnimationFrame(draw);
     };
 
-    rafId = requestAnimationFrame(draw);
+    drawFrame();
+    if (!deck.isPlaying || deck.source !== 'local' || !deck.track || deck.track.isVideo) {
+      return;
+    }
+
+    const loop = () => {
+      drawFrame();
+      rafId = requestAnimationFrame(loop);
+    };
+    rafId = requestAnimationFrame(loop);
     return () => cancelAnimationFrame(rafId);
-  }, [deck.id, deck.isPlaying]);
+  }, [deck.id, deck.isPlaying, deck.source, deck.track]);
 
   // Active lyric line computation
   const lyrics = deck.track?.lyrics || [];

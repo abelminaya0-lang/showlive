@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect } from 'react';
 import { ArrowLeftRight, FolderOpen, Repeat } from 'lucide-react';
 import { audioEngine } from '../audio/audioEngine';
 import { ChannelEqState, DeckId, MixerState } from '../types/showlive';
@@ -93,7 +93,7 @@ const HardwareKnob: React.FC<HardwareKnobProps> = ({
 const TwinRailFader: React.FC<TwinRailFaderProps> = ({
   label,
   volume,
-  vuLevel,
+  railFillRefs,
   tipColor,
   onChange,
   compactMobile = false,
@@ -132,11 +132,14 @@ const TwinRailFader: React.FC<TwinRailFaderProps> = ({
             key={rail}
             className="w-[4.5px] h-full rounded-full bg-[#050508] relative overflow-hidden border border-white/[0.04]"
           >
-            {/* Subtle live VU level inside rails */}
+            {/* Live VU level inside rails (updated via DOM ref without React re-renders) */}
             <div
-              className="absolute bottom-0 inset-x-0 opacity-45 transition-all duration-75"
+              ref={(el) => {
+                railFillRefs.current[rail] = el;
+              }}
+              className="absolute bottom-0 inset-x-0 opacity-45"
               style={{
-                height: `${Math.min(100, vuLevel * 100)}%`,
+                height: '0%',
                 backgroundColor: tipColor,
               }}
             />
@@ -166,7 +169,7 @@ const TwinRailFader: React.FC<TwinRailFaderProps> = ({
 interface TwinRailFaderProps {
   label: string;
   volume: number; // 0 to 1.2
-  vuLevel: number; // 0 to 1
+  railFillRefs: React.MutableRefObject<Array<HTMLDivElement | null>>;
   tipColor: string;
   onChange: (vol: number) => void;
   compactMobile?: boolean;
@@ -180,14 +183,38 @@ export const MixerPanel: React.FC<MixerPanelProps> = ({
   onManualCrossfadeNow,
   onFocusFiles,
 }) => {
-  const [vuA, setVuA] = useState(0);
-  const [vuB, setVuB] = useState(0);
+  const desktopVuARefs = React.useRef<Array<HTMLDivElement | null>>([]);
+  const desktopVuBRefs = React.useRef<Array<HTMLDivElement | null>>([]);
+  const mobileVuARefs = React.useRef<Array<HTMLDivElement | null>>([]);
+  const mobileVuBRefs = React.useRef<Array<HTMLDivElement | null>>([]);
 
   useEffect(() => {
     let rafId = 0;
+    let lastA = -1;
+    let lastB = -1;
     const updateVu = () => {
-      setVuA(audioEngine.getDeckFrequencyData('A').level);
-      setVuB(audioEngine.getDeckFrequencyData('B').level);
+      const a = Math.min(100, Math.round(audioEngine.getDeckFrequencyData('A').level * 100));
+      const b = Math.min(100, Math.round(audioEngine.getDeckFrequencyData('B').level * 100));
+      if (a !== lastA) {
+        lastA = a;
+        const h = `${a}%`;
+        desktopVuARefs.current.forEach((el) => {
+          if (el) el.style.height = h;
+        });
+        mobileVuARefs.current.forEach((el) => {
+          if (el) el.style.height = h;
+        });
+      }
+      if (b !== lastB) {
+        lastB = b;
+        const h = `${b}%`;
+        desktopVuBRefs.current.forEach((el) => {
+          if (el) el.style.height = h;
+        });
+        mobileVuBRefs.current.forEach((el) => {
+          if (el) el.style.height = h;
+        });
+      }
       rafId = requestAnimationFrame(updateVu);
     };
     rafId = requestAnimationFrame(updateVu);
@@ -328,14 +355,14 @@ export const MixerPanel: React.FC<MixerPanelProps> = ({
           <TwinRailFader
             label="VOL A"
             volume={mixer.A.volume}
-            vuLevel={vuA}
+            railFillRefs={desktopVuARefs}
             tipColor="#EA580C"
             onChange={(v) => onChangeChannel('A', { volume: v })}
           />
           <TwinRailFader
             label="VOL B"
             volume={mixer.B.volume}
-            vuLevel={vuB}
+            railFillRefs={desktopVuBRefs}
             tipColor="#EF4444"
             onChange={(v) => onChangeChannel('B', { volume: v })}
           />
@@ -409,7 +436,7 @@ export const MixerPanel: React.FC<MixerPanelProps> = ({
           <TwinRailFader
             label="VOL A"
             volume={mixer.A.volume}
-            vuLevel={vuA}
+            railFillRefs={mobileVuARefs}
             tipColor="#EA580C"
             compactMobile
             onChange={(v) => onChangeChannel('A', { volume: v })}
@@ -490,7 +517,7 @@ export const MixerPanel: React.FC<MixerPanelProps> = ({
           <TwinRailFader
             label="VOL B"
             volume={mixer.B.volume}
-            vuLevel={vuB}
+            railFillRefs={mobileVuBRefs}
             tipColor="#EF4444"
             compactMobile
             onChange={(v) => onChangeChannel('B', { volume: v })}

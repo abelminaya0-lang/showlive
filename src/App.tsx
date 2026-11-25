@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useRef, useState } from 'react';
+import React, { Suspense, lazy, useCallback, useEffect, useRef, useState } from 'react';
 import { Disc, LayoutGrid, Library, Maximize, Settings } from 'lucide-react';
 import { audioEngine } from './audio/audioEngine';
 import {
@@ -6,23 +6,31 @@ import {
   INITIAL_SAMPLER_BANKS,
   INITIAL_TRACKS,
 } from './audio/demoTracks';
-import { DeckPanel } from './components/DeckPanel';
 import { LandingView } from './components/LandingView';
-import { LibraryPanel } from './components/LibraryPanel';
-import { MixerPanel } from './components/MixerPanel';
-import {
-  AiLyricsModal,
-  AiModelModal,
-  PadEditorModal,
-  StemSeparatorModal,
-} from './components/Modals';
-import { SamplerPanel } from './components/SamplerPanel';
-import { TopBar } from './components/TopBar';
+
+const loadDeckPanel = () => import('./components/DeckPanel');
+const loadMixerPanel = () => import('./components/MixerPanel');
+const loadLibraryPanel = () => import('./components/LibraryPanel');
+const loadSamplerPanel = () => import('./components/SamplerPanel');
+const loadTopBar = () => import('./components/TopBar');
+const loadModals = () => import('./components/Modals');
+
+const DeckPanel = lazy(() => loadDeckPanel().then((m) => ({ default: m.DeckPanel })));
+const MixerPanel = lazy(() => loadMixerPanel().then((m) => ({ default: m.MixerPanel })));
+const LibraryPanel = lazy(() => loadLibraryPanel().then((m) => ({ default: m.LibraryPanel })));
+const SamplerPanel = lazy(() => loadSamplerPanel().then((m) => ({ default: m.SamplerPanel })));
+const TopBar = lazy(() => loadTopBar().then((m) => ({ default: m.TopBar })));
+const AiLyricsModal = lazy(() => loadModals().then((m) => ({ default: m.AiLyricsModal })));
+const AiModelModal = lazy(() => loadModals().then((m) => ({ default: m.AiModelModal })));
+const PadEditorModal = lazy(() => loadModals().then((m) => ({ default: m.PadEditorModal })));
+const StemSeparatorModal = lazy(() => loadModals().then((m) => ({ default: m.StemSeparatorModal })));
 import {
   clearPersistedState,
   deleteMediaBlob,
+  getMediaBlob,
   loadPersistedState,
   saveMediaBlob,
+  saveMediaBlobsBatch,
   savePersistedState,
 } from './utils/localMediaStore';
 import {
@@ -167,6 +175,25 @@ export default function App() {
     else setDeckB(updater);
   };
 
+  // Warm up lazy Studio chunks once LandingView is idle
+  useEffect(() => {
+    if (inStudio) return;
+    const warm = () => {
+      loadTopBar();
+      loadDeckPanel();
+      loadMixerPanel();
+      loadLibraryPanel();
+      loadSamplerPanel();
+    };
+    const win = window as any;
+    if (typeof win.requestIdleCallback === 'function') {
+      const id = win.requestIdleCallback(warm, { timeout: 1500 });
+      return () => win.cancelIdleCallback(id);
+    }
+    const timer = globalThis.setTimeout(warm, 600);
+    return () => globalThis.clearTimeout(timer);
+  }, [inStudio]);
+
   const handleOpenStudio = (initialTab: LibraryTab = 'local') => {
     audioEngine.resume();
     setLibraryTab(initialTab);
@@ -176,21 +203,42 @@ export default function App() {
     }
   };
 
+  // Resolve lazy local file Blob URL if track was restored from metadata-only cache
+  const resolveTrackMediaUrl = useCallback(
+    async (track: TrackItem): Promise<TrackItem> => {
+      if (track.sourceType !== 'file' || track.audioUrl || track.videoUrl) {
+        return track;
+      }
+      const blob = await getMediaBlob(`track:${track.id}`);
+      if (!blob) return track;
+      const objectUrl = URL.createObjectURL(blob);
+      const updated: TrackItem = {
+        ...track,
+        audioUrl: track.isVideo ? undefined : objectUrl,
+        videoUrl: track.isVideo ? objectUrl : undefined,
+      };
+      setTracks((prev) => prev.map((t) => (t.id === track.id ? updated : t)));
+      return updated;
+    },
+    []
+  );
+
   // Load Local Track to Deck
-  const handleLoadToDeck = (track: TrackItem, deckId: DeckId) => {
+  const handleLoadToDeck = async (track: TrackItem, deckId: DeckId) => {
     audioEngine.resume();
     deckConsumedRef.current[deckId] = false;
+    const readyTrack = await resolveTrackMediaUrl(track);
     setDeck(deckId, (prev) => ({
       ...prev,
       source: 'local',
-      track,
+      track: readyTrack,
       isPlaying: false,
       currentTime: 0,
-      duration: track.durationSec,
+      duration: readyTrack.durationSec,
       cuePoint: 0,
-      showLyricsOverlay: aiConfig.autoSyncLyrics && track.hasAiLyrics,
+      showLyricsOverlay: aiConfig.autoSyncLyrics && readyTrack.hasAiLyrics,
     }));
-    showToast(`Cargado en Deck ${deckId}: ${track.name}`);
+    showToast(`Cargado en Deck ${deckId}: ${readyTrack.name}`);
   };
 
   // Transport Controls
@@ -259,16 +307,18 @@ export default function App() {
       audioEngine.resume();
 
       if (nextTrackToLoad) {
-        setDeck(toDeckId, (prev) => ({
-          ...prev,
-          source: 'local',
-          track: nextTrackToLoad,
-          isPlaying: true,
-          currentTime: 0,
-          duration: nextTrackToLoad.durationSec,
-          cuePoint: 0,
-          showLyricsOverlay: aiConfig.autoSyncLyrics && nextTrackToLoad.hasAiLyrics,
-        }));
+        resolveTrackMediaUrl(nextTrackToLoad).then((ready) => {
+          setDeck(toDeckId, (prev) => ({
+            ...prev,
+            source: 'local',
+            track: ready,
+            isPlaying: true,
+            currentTime: 0,
+            duration: ready.durationSec,
+            cuePoint: 0,
+            showLyricsOverlay: aiConfig.autoSyncLyrics && ready.hasAiLyrics,
+          }));
+        });
       } else {
         setDeck(toDeckId, (prev) => ({ ...prev, isPlaying: true }));
       }
@@ -307,6 +357,7 @@ export default function App() {
       deckA,
       deckB,
       mixer.crossfader,
+      resolveTrackMediaUrl,
       selectedPlaylistId,
       showToast,
       tracks,
@@ -420,12 +471,17 @@ export default function App() {
     triggerAutoMixTransition(fromDeckId);
   };
 
-  // File, Folder & .djlurivera Import
+  // File, Folder & .djlurivera Import (batched IndexedDB + parallel metadata)
   const handleImportFiles = async (fileList: FileList) => {
     const files = Array.from(fileList);
-    const addedTracks: TrackItem[] = [];
     const createdPlaylists: Playlist[] = [];
     const playlistMap = new Map(playlists.map((p) => [p.name.toLowerCase(), p.id]));
+    const mediaToPrepare: Array<{
+      file: File;
+      trackId: string;
+      isVideo: boolean;
+      targetPlaylistIds: string[];
+    }> = [];
 
     for (const file of files) {
       if (file.name.endsWith('.djlurivera') || file.name.endsWith('.json')) {
@@ -456,7 +512,6 @@ export default function App() {
         continue;
       }
 
-      // Detect folder name when uploading a folder via Cargar Carpeta
       const relPath = (file as any).webkitRelativePath as string | undefined;
       let targetPlaylistIds: string[] = selectedPlaylistId ? [selectedPlaylistId] : [];
       if (relPath && relPath.includes('/')) {
@@ -474,31 +529,8 @@ export default function App() {
       }
 
       const trackId = `local-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
-      await saveMediaBlob(`track:${trackId}`, file);
-
-      const objectUrl = URL.createObjectURL(file);
       const isVideo = file.type.startsWith('video/') || isVideoExt;
-
-      const durationSec = await new Promise<number>((resolve) => {
-        const el = document.createElement(isVideo ? 'video' : 'audio');
-        el.preload = 'metadata';
-        el.src = objectUrl;
-        el.onloadedmetadata = () => resolve(el.duration || 180);
-        el.onerror = () => resolve(180);
-      });
-
-      const newTrack: TrackItem = {
-        id: trackId,
-        name: file.name,
-        durationSec,
-        sourceType: 'file',
-        audioUrl: isVideo ? undefined : objectUrl,
-        videoUrl: isVideo ? objectUrl : undefined,
-        isVideo,
-        playlistIds: targetPlaylistIds,
-        hasAiLyrics: false,
-      };
-      addedTracks.push(newTrack);
+      mediaToPrepare.push({ file, trackId, isVideo, targetPlaylistIds });
     }
 
     if (createdPlaylists.length > 0) {
@@ -506,7 +538,44 @@ export default function App() {
       setSelectedPlaylistId(createdPlaylists[0].id);
     }
 
-    if (addedTracks.length > 0) {
+    if (mediaToPrepare.length > 0) {
+      // Batch-save all blobs in ONE IndexedDB transaction
+      saveMediaBlobsBatch(
+        mediaToPrepare.map((m) => ({ key: `track:${m.trackId}`, blob: m.file }))
+      );
+
+      // Extract metadata durations concurrently
+      const addedTracks: TrackItem[] = await Promise.all(
+        mediaToPrepare.map(async ({ file, trackId, isVideo, targetPlaylistIds }) => {
+          const objectUrl = URL.createObjectURL(file);
+          const durationSec = await new Promise<number>((resolve) => {
+            const el = document.createElement(isVideo ? 'video' : 'audio');
+            el.preload = 'metadata';
+            const fallbackTimer = window.setTimeout(() => resolve(180), 1500);
+            el.onloadedmetadata = () => {
+              window.clearTimeout(fallbackTimer);
+              resolve(el.duration || 180);
+            };
+            el.onerror = () => {
+              window.clearTimeout(fallbackTimer);
+              resolve(180);
+            };
+            el.src = objectUrl;
+          });
+          return {
+            id: trackId,
+            name: file.name,
+            durationSec,
+            sourceType: 'file',
+            audioUrl: isVideo ? undefined : objectUrl,
+            videoUrl: isVideo ? objectUrl : undefined,
+            isVideo,
+            playlistIds: targetPlaylistIds,
+            hasAiLyrics: false,
+          };
+        })
+      );
+
       setTracks((prev) => [...addedTracks, ...prev]);
       showToast(`${addedTracks.length} pista(s) guardada(s) localmente`);
     }
@@ -581,24 +650,22 @@ export default function App() {
     }
 
     try {
-      // 2. Try backend /api/youtube/search (works on Express server & Vercel Serverless)
-      try {
-        const res = await fetch(
-          `/api/youtube/search?q=${encodeURIComponent(trimmed)}`
-        );
-        const contentType = res.headers.get('content-type') || '';
-        if (contentType.includes('application/json')) {
-          const data = await res.json();
-          if (res.ok && Array.isArray(data.items) && data.items.length > 0) {
-            setYtResults(data.items);
-            return;
+      // 2. Try fast parallel race: local/Vercel /api/youtube/search AND live CORS Piped mirror
+      const fetchJsonWithTimeout = async (url: string, ms: number) => {
+        const ctrl = new AbortController();
+        const t = window.setTimeout(() => ctrl.abort(), ms);
+        try {
+          const r = await fetch(url, { signal: ctrl.signal });
+          const ct = r.headers.get('content-type') || '';
+          if (!r.ok || !ct.includes('application/json')) {
+            throw new Error('Bad response');
           }
+          return await r.json();
+        } finally {
+          window.clearTimeout(t);
         }
-      } catch {
-        // Fall through to client-side public mirrors
-      }
+      };
 
-      // 3. Browser fallback mirrors (Piped / Invidious) in case backend is static or blocked
       const fmtSec = (sec?: number) => {
         if (!sec || !Number.isFinite(sec) || sec <= 0) return 'HD';
         const m = Math.floor(sec / 60);
@@ -606,15 +673,21 @@ export default function App() {
         return `${m}:${s.toString().padStart(2, '0')}`;
       };
 
-      const pipedMirrors = [
-        `https://pipedapi.kavin.rocks/search?q=${encodeURIComponent(trimmed)}&filter=videos`,
-        `https://pipedapi.adminforge.de/search?q=${encodeURIComponent(trimmed)}&filter=videos`,
-      ];
-      for (const mirror of pipedMirrors) {
-        try {
-          const r = await fetch(mirror);
-          if (!r.ok) continue;
-          const d = await r.json();
+      const backendTask = fetchJsonWithTimeout(
+        `/api/youtube/search?q=${encodeURIComponent(trimmed)}`,
+        4000
+      ).then((data) => {
+        if (!Array.isArray(data?.items) || data.items.length === 0) {
+          throw new Error('No backend items');
+        }
+        return data.items as YouTubeSearchResult[];
+      });
+
+      const fetchPipedMirror = (baseUrl: string) =>
+        fetchJsonWithTimeout(
+          `${baseUrl}/search?q=${encodeURIComponent(trimmed)}&filter=videos`,
+          5000
+        ).then((d) => {
           const items = (Array.isArray(d?.items) ? d.items : [])
             .map((it: any) => {
               const m = String(it?.url || '').match(/v=([A-Za-z0-9_-]{11})/);
@@ -629,52 +702,19 @@ export default function App() {
               };
             })
             .filter(Boolean) as YouTubeSearchResult[];
-          if (items.length > 0) {
-            setYtResults(items.slice(0, 16));
-            return;
-          }
-        } catch {
-          // Try next mirror
-        }
-      }
+          if (items.length === 0) throw new Error('No piped items');
+          return items.slice(0, 16);
+        });
 
-      const invMirrors = [
-        `https://invidious.nerdvpn.de/api/v1/search?q=${encodeURIComponent(trimmed)}&type=video`,
-      ];
-      for (const mirror of invMirrors) {
-        try {
-          const r = await fetch(mirror);
-          if (!r.ok) continue;
-          const list = await r.json();
-          if (Array.isArray(list) && list.length > 0) {
-            const items: YouTubeSearchResult[] = list
-              .filter((it: any) => it?.videoId)
-              .slice(0, 16)
-              .map((it: any) => ({
-                videoId: it.videoId,
-                title: it.title || 'YouTube Video',
-                channel: it.author || 'YouTube',
-                duration: fmtSec(it.lengthSeconds),
-                thumbnail: `https://i.ytimg.com/vi/${it.videoId}/hqdefault.jpg`,
-                views: it.viewCountText || '',
-              }));
-            if (items.length > 0) {
-              setYtResults(items);
-              return;
-            }
-          }
-        } catch {
-          // Ignore
-        }
-      }
-
-      throw new Error(
-        'No se pudieron obtener resultados automáticos. Pega directamente la URL o ID del video de YouTube.'
-      );
-    } catch (err: any) {
+      const fastestItems = await Promise.any([
+        backendTask,
+        fetchPipedMirror('https://api.piped.private.coffee'),
+        fetchPipedMirror('https://pipedapi.ducks.party'),
+      ]);
+      setYtResults(fastestItems);
+    } catch {
       setYtError(
-        err?.message ||
-          'No se pudo buscar en YouTube. Pega un enlace de YouTube directamente.'
+        'No se pudieron obtener resultados en este momento. Intenta de nuevo o pega la URL del video.'
       );
     } finally {
       setYtLoading(false);
@@ -832,7 +872,14 @@ export default function App() {
   const lyricsModalTrack = tracks.find((t) => t.id === lyricsModalTrackId) || null;
 
   return (
-    <div className="h-screen w-screen overflow-hidden bg-[#080A0F] text-slate-100 flex flex-col">
+    <Suspense
+      fallback={
+        <div className="h-screen w-screen bg-[#080A0F] text-slate-300 flex items-center justify-center text-sm font-medium">
+          Cargando consola ShowLive...
+        </div>
+      }
+    >
+      <div className="h-screen w-screen overflow-hidden bg-[#080A0F] text-slate-100 flex flex-col">
       <TopBar
         workspaceMode={workspaceMode}
         onChangeMode={setWorkspaceMode}
@@ -1220,6 +1267,7 @@ export default function App() {
           {toastMsg}
         </div>
       )}
-    </div>
+      </div>
+    </Suspense>
   );
 }
