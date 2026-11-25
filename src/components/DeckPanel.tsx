@@ -583,16 +583,46 @@ export const DeckPanel: React.FC<DeckPanelProps> = ({
           {/* YOUTUBE MODE */}
           {deck.source === 'youtube' ? (
             deck.youtubeId ? (
-              <iframe
-                ref={ytIframeRef}
-                className="w-full h-full border-0"
-                src={`https://www.youtube.com/embed/${deck.youtubeId}?enablejsapi=1&autoplay=${
-                  deck.isPlaying ? 1 : 0
-                }&rel=0&modestbranding=1`}
-                title={`Deck ${deck.id} YouTube Karaoke`}
-                allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
-                allowFullScreen
-              />
+              <div className="relative w-full h-full">
+                <iframe
+                  key={deck.youtubeId}
+                  ref={ytIframeRef}
+                  className="w-full h-full border-0"
+                  src={`https://www.youtube.com/embed/${deck.youtubeId}?enablejsapi=1&autoplay=1&playsinline=1&rel=0&modestbranding=1&origin=${encodeURIComponent(
+                    typeof window !== 'undefined' ? window.location.origin : ''
+                  )}`}
+                  title={`Deck ${deck.id} YouTube Karaoke`}
+                  allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
+                  referrerPolicy="strict-origin-when-cross-origin"
+                  allowFullScreen
+                  onLoad={() => {
+                    const win = ytIframeRef.current?.contentWindow;
+                    if (!win) return;
+                    const volPct = Math.round(Math.max(0, Math.min(1, channelVolume)) * 100);
+                    win.postMessage(
+                      JSON.stringify({ event: 'command', func: 'setVolume', args: [volPct] }),
+                      '*'
+                    );
+                    win.postMessage(
+                      JSON.stringify({
+                        event: 'command',
+                        func: deck.isPlaying ? 'playVideo' : 'pauseVideo',
+                        args: [],
+                      }),
+                      '*'
+                    );
+                  }}
+                />
+                <a
+                  href={`https://www.youtube.com/watch?v=${deck.youtubeId}`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="absolute bottom-1.5 right-1.5 z-10 px-1.5 py-0.5 rounded bg-black/75 hover:bg-red-600 text-[9px] font-semibold text-slate-200 hover:text-white border border-white/15 transition-colors"
+                  title="Abrir en YouTube si el video restringe reproducción incrustada"
+                >
+                  YT ↗
+                </a>
+              </div>
             ) : (
               <div className="flex flex-col items-center justify-center text-center p-2 lg:p-4 gap-2 lg:gap-3">
                 <div className="w-9 h-9 lg:w-12 lg:h-12 rounded-full bg-red-600/15 border border-red-500/30 flex items-center justify-center">

@@ -552,21 +552,130 @@ export default function App() {
     showToast(`Exportado: ${payload.fileName}`);
   };
 
-  // YouTube Karaoke Search
+  // YouTube Karaoke Search (with direct link parsing + client-side mirror fallback)
   const handleSearchYoutube = async (query: string) => {
+    const trimmed = query.trim();
+    if (!trimmed) return;
     setYtLoading(true);
     setYtError(null);
+
+    // 1. Instant direct YouTube link / ID detection in browser
+    const urlMatch = trimmed.match(
+      /(?:(?:music\.|m\.|www\.)?youtube\.com\/(?:watch\?(?:.*&)?v=|embed\/|shorts\/|live\/)|youtu\.be\/)([A-Za-z0-9_-]{11})/
+    );
+    const idMatch = trimmed.match(/^[A-Za-z0-9_-]{11}$/);
+    const directId = urlMatch?.[1] || idMatch?.[0];
+    if (directId) {
+      setYtResults([
+        {
+          videoId: directId,
+          title: `YouTube Video (${directId})`,
+          channel: 'Enlace directo',
+          duration: 'HD',
+          thumbnail: `https://i.ytimg.com/vi/${directId}/hqdefault.jpg`,
+          views: 'Directo',
+        },
+      ]);
+      setYtLoading(false);
+      return;
+    }
+
     try {
-      const res = await fetch(
-        `/api/youtube/search?q=${encodeURIComponent(query)}`
-      );
-      const data = await res.json();
-      if (!res.ok) {
-        throw new Error(data.error || 'Error buscando en YouTube.');
+      // 2. Try backend /api/youtube/search (works on Express server & Vercel Serverless)
+      try {
+        const res = await fetch(
+          `/api/youtube/search?q=${encodeURIComponent(trimmed)}`
+        );
+        const contentType = res.headers.get('content-type') || '';
+        if (contentType.includes('application/json')) {
+          const data = await res.json();
+          if (res.ok && Array.isArray(data.items) && data.items.length > 0) {
+            setYtResults(data.items);
+            return;
+          }
+        }
+      } catch {
+        // Fall through to client-side public mirrors
       }
-      setYtResults(data.items || []);
+
+      // 3. Browser fallback mirrors (Piped / Invidious) in case backend is static or blocked
+      const fmtSec = (sec?: number) => {
+        if (!sec || !Number.isFinite(sec) || sec <= 0) return 'HD';
+        const m = Math.floor(sec / 60);
+        const s = Math.floor(sec % 60);
+        return `${m}:${s.toString().padStart(2, '0')}`;
+      };
+
+      const pipedMirrors = [
+        `https://pipedapi.kavin.rocks/search?q=${encodeURIComponent(trimmed)}&filter=videos`,
+        `https://pipedapi.adminforge.de/search?q=${encodeURIComponent(trimmed)}&filter=videos`,
+      ];
+      for (const mirror of pipedMirrors) {
+        try {
+          const r = await fetch(mirror);
+          if (!r.ok) continue;
+          const d = await r.json();
+          const items = (Array.isArray(d?.items) ? d.items : [])
+            .map((it: any) => {
+              const m = String(it?.url || '').match(/v=([A-Za-z0-9_-]{11})/);
+              if (!m?.[1]) return null;
+              return {
+                videoId: m[1],
+                title: it.title || 'YouTube Video',
+                channel: it.uploaderName || 'YouTube',
+                duration: fmtSec(it.duration),
+                thumbnail: `https://i.ytimg.com/vi/${m[1]}/hqdefault.jpg`,
+                views: it.views ? `${Number(it.views).toLocaleString()} vistas` : '',
+              };
+            })
+            .filter(Boolean) as YouTubeSearchResult[];
+          if (items.length > 0) {
+            setYtResults(items.slice(0, 16));
+            return;
+          }
+        } catch {
+          // Try next mirror
+        }
+      }
+
+      const invMirrors = [
+        `https://invidious.nerdvpn.de/api/v1/search?q=${encodeURIComponent(trimmed)}&type=video`,
+      ];
+      for (const mirror of invMirrors) {
+        try {
+          const r = await fetch(mirror);
+          if (!r.ok) continue;
+          const list = await r.json();
+          if (Array.isArray(list) && list.length > 0) {
+            const items: YouTubeSearchResult[] = list
+              .filter((it: any) => it?.videoId)
+              .slice(0, 16)
+              .map((it: any) => ({
+                videoId: it.videoId,
+                title: it.title || 'YouTube Video',
+                channel: it.author || 'YouTube',
+                duration: fmtSec(it.lengthSeconds),
+                thumbnail: `https://i.ytimg.com/vi/${it.videoId}/hqdefault.jpg`,
+                views: it.viewCountText || '',
+              }));
+            if (items.length > 0) {
+              setYtResults(items);
+              return;
+            }
+          }
+        } catch {
+          // Ignore
+        }
+      }
+
+      throw new Error(
+        'No se pudieron obtener resultados automáticos. Pega directamente la URL o ID del video de YouTube.'
+      );
     } catch (err: any) {
-      setYtError(err?.message || 'No se pudo buscar en YouTube.');
+      setYtError(
+        err?.message ||
+          'No se pudo buscar en YouTube. Pega un enlace de YouTube directamente.'
+      );
     } finally {
       setYtLoading(false);
     }
