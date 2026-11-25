@@ -1,0 +1,8 @@
+{
+  "name": "ShowLive",
+  "description": "Interactive live DJ, Karaoke & Zero-Latency 32-Pad Sampler Suite with real-time pitch shifting, 3-band EQ, YouTube Karaoke projection, and AI lyrics.",
+  "requestFramePermissions": [],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}
