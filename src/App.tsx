@@ -425,6 +425,10 @@ export default function App() {
         );
       } else if (code === 'auth/operation-not-allowed') {
         setAuthError('El inicio de sesión con Google no está habilitado en Firebase Authentication.');
+      } else if (code === 'auth/account-exists-with-different-credential') {
+        setAuthError('Ese correo ya existe con contraseña. Inicia con Email y Password arriba.');
+      } else if (code === 'auth/user-disabled') {
+        setAuthError('Esta cuenta fue deshabilitada en Firebase.');
       } else if (code === 'auth/network-request-failed') {
         setAuthError('Error de red al conectar con Google. Verifica tu conexión o desactiva bloqueadores.');
       } else {
@@ -558,6 +562,11 @@ export default function App() {
     await signOut(auth);
   };
 
+  const handleSwitchAccount = async () => {
+    await handleSignOut();
+    setShowLoginScreen(true);
+  };
+
   const handleRequestAccess = async () => {
     if (!authUser) return;
     try {
@@ -585,6 +594,7 @@ export default function App() {
   useEffect(() => {
     if (inStudio) return;
     const warm = () => {
+      loadLoginView();
       loadTopBar();
       loadDeckPanel();
       loadMixerPanel();
@@ -1320,9 +1330,12 @@ export default function App() {
           onEmailSignIn={handleEmailSignIn}
           onEmailRegister={handleEmailRegister}
           onResetPassword={handleResetPassword}
+          onClearFeedback={() => {
+            setAuthError(null);
+            setAuthNotice(null);
+          }}
           authError={authError}
           authNotice={authNotice}
-          loading={authLoading}
         />
       </Suspense>
     );
@@ -1346,12 +1359,14 @@ export default function App() {
           setAuthNotice(null);
           setShowLoginScreen(true);
         }}
+        onSwitchAccount={handleSwitchAccount}
         onSignOut={handleSignOut}
         onRequestAccess={handleRequestAccess}
         onResendVerification={handleResendVerification}
         onRefreshVerification={handleRefreshVerification}
         onOpenAdminDashboard={() => setShowAdminDashboard(true)}
         authError={authError}
+        authNotice={authNotice}
       />
     );
   }

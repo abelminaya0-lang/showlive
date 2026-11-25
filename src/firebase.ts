@@ -8,6 +8,7 @@ export const ADMIN_EMAIL = 'abelminaya0@gmail.com';
 const app = initializeApp(firebaseConfig);
 export const db = getFirestore(app, firebaseConfig.firestoreDatabaseId);
 export const auth = getAuth(app);
+auth.languageCode = 'es';
 export const googleProvider = new GoogleAuthProvider();
 googleProvider.setCustomParameters({ prompt: 'select_account' });
 

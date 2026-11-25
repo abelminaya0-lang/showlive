@@ -36,12 +36,14 @@ interface LandingViewProps {
   clientSuspended?: boolean;
   accessRequestStatus?: 'pending' | 'approved' | 'rejected' | null;
   onOpenLogin: () => void;
+  onSwitchAccount?: () => void;
   onSignOut: () => void;
   onRequestAccess: () => void;
   onResendVerification?: () => void;
   onRefreshVerification?: () => void;
   onOpenAdminDashboard: () => void;
   authError?: string | null;
+  authNotice?: string | null;
 }
 
 export const LandingView: React.FC<LandingViewProps> = ({
@@ -56,12 +58,14 @@ export const LandingView: React.FC<LandingViewProps> = ({
   clientSuspended,
   accessRequestStatus,
   onOpenLogin,
+  onSwitchAccount,
   onSignOut,
   onRequestAccess,
   onResendVerification,
   onRefreshVerification,
   onOpenAdminDashboard,
   authError,
+  authNotice,
 }) => {
   const handlePreviewClick = () => {
     if (!userEmail) {
@@ -337,7 +341,7 @@ export const LandingView: React.FC<LandingViewProps> = ({
                 <div className="absolute inset-0 bg-[#F4256A]/0 group-hover:bg-[#F4256A]/5 transition-colors flex items-center justify-center pointer-events-none">
                   <span className="opacity-0 group-hover:opacity-100 transition-opacity px-4 py-2 rounded-lg bg-[#090B10]/90 border border-[#F4256A]/50 text-xs font-semibold text-white shadow-xl">
                     {!userEmail
-                      ? 'Inicia sesión con Google para abrir'
+                      ? 'Inicia sesión para abrir'
                       : isAuthorized
                         ? 'Clic para abrir consola en vivo'
                         : 'Acceso pendiente de autorización'}
@@ -437,7 +441,7 @@ export const LandingView: React.FC<LandingViewProps> = ({
           <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 mb-7">
             <button
               type="button"
-              onClick={() => (userEmail ? isAuthorized && onOpenStudio('local') : onOpenLogin())}
+              onClick={() => onOpenStudio('local')}
               className="text-left p-3.5 rounded-xl bg-[#11131C] border border-white/10 hover:border-[#F4256A]/50 transition-colors cursor-pointer"
             >
               <FolderOpen className="w-4 h-4 text-[#F4256A] mb-2" />
@@ -447,7 +451,7 @@ export const LandingView: React.FC<LandingViewProps> = ({
 
             <button
               type="button"
-              onClick={() => (userEmail ? isAuthorized && onOpenStudio('local') : onOpenLogin())}
+              onClick={() => onOpenStudio('local')}
               className="text-left p-3.5 rounded-xl bg-[#11131C] border border-white/10 hover:border-[#F4256A]/50 transition-colors cursor-pointer"
             >
               <Music className="w-4 h-4 text-[#F4256A] mb-2" />
@@ -457,7 +461,7 @@ export const LandingView: React.FC<LandingViewProps> = ({
 
             <button
               type="button"
-              onClick={() => (userEmail ? isAuthorized && onOpenStudio('youtube') : onOpenLogin())}
+              onClick={() => onOpenStudio('youtube')}
               className="text-left p-3.5 rounded-xl bg-[#11131C] border border-white/10 hover:border-[#F4256A]/50 transition-colors cursor-pointer"
             >
               <Youtube className="w-4 h-4 text-[#F4256A] mb-2" />
@@ -467,7 +471,7 @@ export const LandingView: React.FC<LandingViewProps> = ({
 
             <button
               type="button"
-              onClick={() => (userEmail ? isAuthorized && onOpenStudio('local') : onOpenLogin())}
+              onClick={() => onOpenStudio('local')}
               className="text-left p-3.5 rounded-xl bg-[#11131C] border border-white/10 hover:border-[#F4256A]/50 transition-colors cursor-pointer"
             >
               <Sliders className="w-4 h-4 text-[#F4256A] mb-2" />
@@ -477,7 +481,7 @@ export const LandingView: React.FC<LandingViewProps> = ({
 
             <button
               type="button"
-              onClick={() => (userEmail ? isAuthorized && onOpenStudio('local') : onOpenLogin())}
+              onClick={() => onOpenStudio('local')}
               className="text-left p-3.5 rounded-xl bg-[#11131C] border border-white/10 hover:border-[#F4256A]/50 transition-colors col-span-2 cursor-pointer"
             >
               <Grid className="w-4 h-4 text-[#F4256A] mb-2" />
@@ -489,6 +493,12 @@ export const LandingView: React.FC<LandingViewProps> = ({
           {authError && (
             <div className="mb-4 px-3.5 py-2.5 rounded-lg bg-red-500/15 border border-red-500/35 text-xs text-red-200">
               {authError}
+            </div>
+          )}
+
+          {authNotice && (
+            <div className="mb-4 px-3.5 py-2.5 rounded-lg bg-emerald-500/15 border border-emerald-500/35 text-xs text-emerald-200">
+              {authNotice}
             </div>
           )}
 
@@ -633,7 +643,7 @@ export const LandingView: React.FC<LandingViewProps> = ({
 
                 <button
                   type="button"
-                  onClick={onSignOut}
+                  onClick={onSwitchAccount || onSignOut}
                   className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-lg bg-[#181C28] hover:bg-[#22283A] border border-white/10 text-slate-300 text-xs font-medium cursor-pointer"
                 >
                   <LogOut className="w-3.5 h-3.5" />

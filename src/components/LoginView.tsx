@@ -1,7 +1,10 @@
 import React, { useState } from 'react';
-import { ArrowLeft, Loader2, MessageCircle } from 'lucide-react';
+import { ArrowLeft, ExternalLink, Eye, EyeOff, Loader2, MessageCircle } from 'lucide-react';
 
 export type LoginMode = 'login' | 'register' | 'reset' | 'paid_help';
+
+const FIREBASE_AUTH_SETTINGS_URL =
+  'https://console.firebase.google.com/project/tactile-cosine-j2t1j/authentication/settings';
 
 interface LoginViewProps {
   onBack: () => void;
@@ -9,9 +12,9 @@ interface LoginViewProps {
   onEmailSignIn: (email: string, password: string) => Promise<void>;
   onEmailRegister: (email: string, password: string) => Promise<void>;
   onResetPassword: (email: string) => Promise<void>;
+  onClearFeedback?: () => void;
   authError: string | null;
   authNotice: string | null;
-  loading?: boolean;
 }
 
 export const LoginView: React.FC<LoginViewProps> = ({
@@ -20,29 +23,59 @@ export const LoginView: React.FC<LoginViewProps> = ({
   onEmailSignIn,
   onEmailRegister,
   onResetPassword,
+  onClearFeedback,
   authError,
   authNotice,
-  loading,
 }) => {
   const [mode, setMode] = useState<LoginMode>('login');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [showPassword, setShowPassword] = useState(false);
   const [submitting, setSubmitting] = useState(false);
+  const [googleLoading, setGoogleLoading] = useState(false);
+
+  const switchMode = (nextMode: LoginMode) => {
+    onClearFeedback?.();
+    setMode(nextMode);
+  };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!email.trim()) return;
+    const cleanEmail = email.trim();
+    if (!cleanEmail || submitting || googleLoading) return;
     setSubmitting(true);
     try {
       if (mode === 'login') {
-        await onEmailSignIn(email.trim(), password);
+        await onEmailSignIn(cleanEmail, password);
       } else if (mode === 'register') {
-        await onEmailRegister(email.trim(), password);
+        await onEmailRegister(cleanEmail, password);
       } else if (mode === 'reset') {
-        await onResetPassword(email.trim());
+        await onResetPassword(cleanEmail);
       }
     } finally {
       setSubmitting(false);
+    }
+  };
+
+  const handlePaidReset = async () => {
+    const cleanEmail = email.trim();
+    if (!cleanEmail || submitting || googleLoading) return;
+    setSubmitting(true);
+    try {
+      await onResetPassword(cleanEmail);
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  const handleGoogleClick = async () => {
+    if (submitting || googleLoading) return;
+    onClearFeedback?.();
+    setGoogleLoading(true);
+    try {
+      await onGoogleSignIn();
+    } finally {
+      setGoogleLoading(false);
     }
   };
 
@@ -52,7 +85,11 @@ export const LoginView: React.FC<LoginViewProps> = ({
     }`
   )}`;
 
-  const isBusy = Boolean(loading || submitting);
+  const isBusy = submitting || googleLoading;
+  const isDomainError = Boolean(
+    authError &&
+      (authError.includes('Authorized domains') || authError.includes('no está autorizado'))
+  );
 
   return (
     <div
@@ -67,7 +104,7 @@ export const LoginView: React.FC<LoginViewProps> = ({
         <button
           type="button"
           onClick={() => {
-            if (mode !== 'login') setMode('login');
+            if (mode !== 'login') switchMode('login');
             else onBack();
           }}
           className="inline-flex items-center gap-1.5 text-sm text-slate-300 hover:text-white mb-4 cursor-pointer transition-colors"
@@ -92,7 +129,7 @@ export const LoginView: React.FC<LoginViewProps> = ({
 
             <button
               type="button"
-              onClick={() => setMode(mode === 'register' ? 'login' : 'register')}
+              onClick={() => switchMode(mode === 'register' ? 'login' : 'register')}
               className="px-3.5 py-1.5 rounded-full bg-white/[0.04] hover:bg-white/[0.08] border border-white/15 text-xs font-medium text-slate-200 transition-colors cursor-pointer whitespace-nowrap"
             >
               {mode === 'register' ? 'Ya tengo cuenta' : 'No tienes cuenta? Regístrate'}
@@ -100,8 +137,19 @@ export const LoginView: React.FC<LoginViewProps> = ({
           </div>
 
           {authError && (
-            <div className="mb-4 px-3.5 py-2.5 rounded-xl bg-red-500/15 border border-red-500/35 text-xs text-red-200 leading-relaxed">
-              {authError}
+            <div className="mb-4 px-3.5 py-2.5 rounded-xl bg-red-500/15 border border-red-500/35 text-xs text-red-200 leading-relaxed space-y-2">
+              <p>{authError}</p>
+              {isDomainError && (
+                <a
+                  href={FIREBASE_AUTH_SETTINGS_URL}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-red-500/20 hover:bg-red-500/30 border border-red-400/40 text-white font-semibold transition-colors"
+                >
+                  <span>Autorizar dominio en Firebase</span>
+                  <ExternalLink className="w-3.5 h-3.5" />
+                </a>
+              )}
             </div>
           )}
 
@@ -138,15 +186,16 @@ export const LoginView: React.FC<LoginViewProps> = ({
               <button
                 type="button"
                 disabled={!email.trim() || isBusy}
-                onClick={() => onResetPassword(email.trim())}
-                className="w-full py-2.5 rounded-full border border-emerald-400/50 bg-[#082422] hover:bg-[#0B302D] disabled:opacity-50 text-xs font-semibold text-emerald-200 cursor-pointer transition-colors"
+                onClick={handlePaidReset}
+                className="w-full py-2.5 rounded-full border border-emerald-400/50 bg-[#082422] hover:bg-[#0B302D] disabled:opacity-50 text-xs font-semibold text-emerald-200 flex items-center justify-center gap-2 cursor-pointer transition-colors"
               >
-                Enviar enlace para crear / restablecer mi contraseña
+                {submitting && <Loader2 className="w-3.5 h-3.5 animate-spin" />}
+                <span>Enviar enlace para crear / restablecer mi contraseña</span>
               </button>
 
               <button
                 type="button"
-                onClick={() => setMode('login')}
+                onClick={() => switchMode('login')}
                 className="w-full py-2 text-xs text-slate-400 hover:text-white cursor-pointer"
               >
                 Volver a Iniciar sesión
@@ -165,23 +214,37 @@ export const LoginView: React.FC<LoginViewProps> = ({
               />
 
               {mode !== 'reset' && (
-                <input
-                  type="password"
-                  required
-                  minLength={6}
-                  value={password}
-                  onChange={(e) => setPassword(e.target.value)}
-                  placeholder="Password"
-                  autoComplete={mode === 'register' ? 'new-password' : 'current-password'}
-                  className="w-full px-4 py-3 rounded-xl bg-[#161C2C]/85 border border-white/15 text-sm text-white placeholder:text-slate-400 focus:outline-none focus:border-cyan-400/70 transition-colors"
-                />
+                <div className="relative">
+                  <input
+                    type={showPassword ? 'text' : 'password'}
+                    required
+                    minLength={6}
+                    value={password}
+                    onChange={(e) => setPassword(e.target.value)}
+                    placeholder="Password"
+                    autoComplete={mode === 'register' ? 'new-password' : 'current-password'}
+                    className="w-full pl-4 pr-11 py-3 rounded-xl bg-[#161C2C]/85 border border-white/15 text-sm text-white placeholder:text-slate-400 focus:outline-none focus:border-cyan-400/70 transition-colors"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowPassword((prev) => !prev)}
+                    className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-white p-1 cursor-pointer"
+                    aria-label={showPassword ? 'Ocultar contraseña' : 'Ver contraseña'}
+                  >
+                    {showPassword ? (
+                      <EyeOff className="w-4 h-4" />
+                    ) : (
+                      <Eye className="w-4 h-4" />
+                    )}
+                  </button>
+                </div>
               )}
 
               {mode === 'login' && (
                 <div className="flex justify-end pt-0.5">
                   <button
                     type="button"
-                    onClick={() => setMode('reset')}
+                    onClick={() => switchMode('reset')}
                     className="text-xs text-slate-300 hover:text-white cursor-pointer transition-colors"
                   >
                     Olvidé mi contraseña
@@ -194,7 +257,7 @@ export const LoginView: React.FC<LoginViewProps> = ({
                 disabled={isBusy}
                 className="w-full py-3 rounded-full bg-[#07111F] hover:bg-[#0C1A2E] border border-cyan-400/75 text-white font-bold text-sm shadow-[0_0_24px_rgba(34,211,238,0.22)] hover:shadow-[0_0_28px_rgba(34,211,238,0.35)] disabled:opacity-60 flex items-center justify-center gap-2 cursor-pointer transition-all"
               >
-                {isBusy && <Loader2 className="w-4 h-4 animate-spin" />}
+                {submitting && <Loader2 className="w-4 h-4 animate-spin" />}
                 <span>
                   {mode === 'register'
                     ? 'Registrarme'
@@ -217,7 +280,7 @@ export const LoginView: React.FC<LoginViewProps> = ({
           <div className="space-y-3">
             <button
               type="button"
-              onClick={() => setMode('paid_help')}
+              onClick={() => switchMode('paid_help')}
               className="w-full py-3 rounded-full bg-[#072623]/90 hover:bg-[#0B332F] border border-emerald-400/65 text-white text-sm font-bold cursor-pointer transition-colors"
             >
               Ya pagué y no tengo contraseña
@@ -226,28 +289,34 @@ export const LoginView: React.FC<LoginViewProps> = ({
             <button
               type="button"
               disabled={isBusy}
-              onClick={onGoogleSignIn}
+              onClick={handleGoogleClick}
               className="w-full py-3 rounded-full bg-[#111626] hover:bg-[#192036] border border-white/15 text-white text-sm font-bold flex items-center justify-center gap-2.5 disabled:opacity-60 cursor-pointer transition-colors"
             >
-              <svg className="w-4 h-4 shrink-0" viewBox="0 0 24 24">
-                <path
-                  fill="#4285F4"
-                  d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"
-                />
-                <path
-                  fill="#34A853"
-                  d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"
-                />
-                <path
-                  fill="#FBBC05"
-                  d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z"
-                />
-                <path
-                  fill="#EA4335"
-                  d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z"
-                />
-              </svg>
-              <span>Iniciar sesión con Google</span>
+              {googleLoading ? (
+                <Loader2 className="w-4 h-4 animate-spin text-cyan-400 shrink-0" />
+              ) : (
+                <svg className="w-4 h-4 shrink-0" viewBox="0 0 24 24">
+                  <path
+                    fill="#4285F4"
+                    d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"
+                  />
+                  <path
+                    fill="#34A853"
+                    d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"
+                  />
+                  <path
+                    fill="#FBBC05"
+                    d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z"
+                  />
+                  <path
+                    fill="#EA4335"
+                    d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z"
+                  />
+                </svg>
+              )}
+              <span>
+                {googleLoading ? 'Abriendo Google...' : 'Iniciar sesión con Google'}
+              </span>
             </button>
           </div>
         </div>
