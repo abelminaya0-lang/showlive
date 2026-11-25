@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
+import { Disc, LayoutGrid, Library, Maximize, Settings } from 'lucide-react';
 import { audioEngine } from './audio/audioEngine';
 import {
   INITIAL_PLAYLISTS,
@@ -64,6 +65,7 @@ function createInitialDeck(id: DeckId): DeckState {
 export default function App() {
   const [inStudio, setInStudio] = useState(false);
   const [workspaceMode, setWorkspaceMode] = useState<WorkspaceMode>('mixer');
+  const [mobileTab, setMobileTab] = useState<'decks' | 'library' | 'sampler'>('decks');
   const [libraryTab, setLibraryTab] = useState<LibraryTab>('local');
   const [playlists, setPlaylists] = useState<Playlist[]>(INITIAL_PLAYLISTS);
   const [selectedPlaylistId, setSelectedPlaylistId] = useState<string | null>(null);
@@ -344,6 +346,24 @@ export default function App() {
 
   const handleChangeSource = (deckId: DeckId, source: DeckSource) => {
     setDeck(deckId, (prev) => ({ ...prev, source, isPlaying: false }));
+  };
+
+  const handleUnloadDeck = (deckId: DeckId) => {
+    deckConsumedRef.current[deckId] = false;
+    setDeck(deckId, () => createInitialDeck(deckId));
+    showToast(`Deck ${deckId} limpiado`);
+  };
+
+  const handleToggleFullscreen = async () => {
+    try {
+      if (!document.fullscreenElement) {
+        await document.documentElement.requestFullscreen();
+      } else {
+        await document.exitFullscreen();
+      }
+    } catch {
+      // Fullscreen denied in sandboxed iframe
+    }
   };
 
   const handleChangeStemMode = (
@@ -718,7 +738,7 @@ export default function App() {
       />
 
       {/* Main Studio Body */}
-      <main className="flex-1 min-h-0 p-2 sm:p-2.5 flex flex-col gap-2.5 overflow-y-auto lg:overflow-hidden">
+      <main className="flex-1 min-h-0 p-1.5 sm:p-2.5 flex flex-col gap-1.5 lg:gap-2.5 overflow-hidden">
         {workspaceMode === 'pads' ? (
           <div className="flex-1 min-h-0 flex">
             <SamplerPanel
@@ -740,182 +760,300 @@ export default function App() {
           </div>
         ) : (
           <>
-            {/* UPPER SECTION: DECK A + MIXER + DECK B */}
-            <section className="flex flex-col lg:flex-row items-stretch gap-2.5 min-h-[340px] lg:h-[50%] shrink-0">
-              <DeckPanel
-                deck={deckA}
-                channelVolume={effVolA}
-                onTogglePlay={() => handleTogglePlay('A')}
-                onCue={() => handleCue('A')}
-                onSeek={(t) => handleSeek('A', t)}
-                onTimeUpdate={(t, d) => handleTimeUpdate('A', t, d)}
-                onEnded={() => handleEnded('A')}
-                onChangePitch={(s) => handleChangePitch('A', s)}
-                onChangeTrackBaseKey={(k) => {
-                  if (!deckA.track) return;
-                  const id = deckA.track.id;
-                  setDeckA((p) =>
-                    p.track ? { ...p, track: { ...p.track, musicalKey: k } } : p
-                  );
-                  setTracks((prev) =>
-                    prev.map((t) => (t.id === id ? { ...t, musicalKey: k } : t))
-                  );
-                }}
-                onChangeSource={(src) => handleChangeSource('A', src)}
-                onToggleExpand={() =>
-                  setDeckA((p) => ({ ...p, isExpanded: !p.isExpanded }))
-                }
-                onToggleLyricsOverlay={() =>
-                  setDeckA((p) => ({ ...p, showLyricsOverlay: !p.showLyricsOverlay }))
-                }
-                onRequestAiLyrics={() => {
-                  if (deckA.track) setLyricsModalTrackId(deckA.track.id);
-                }}
-                onChangeStemMode={(mode) => handleChangeStemMode('A', mode)}
-                onSelectYoutubeTab={() => setLibraryTab('youtube')}
-              />
+            {/* UPPER SECTION: DECK A + MIXER + DECK B (Desktop 3-col | Mobile 2-col Decks + Full-width Mixer) */}
+            <section
+              className={`${
+                mobileTab === 'decks' ? 'grid' : 'hidden lg:flex'
+              } grid-cols-2 grid-rows-[auto_1fr] flex-1 min-h-0 gap-1.5 lg:flex lg:flex-none lg:flex-row lg:items-stretch lg:gap-2.5 lg:h-[50%] shrink-0`}
+            >
+              <div className="order-1 col-span-1 lg:flex-1 min-w-0 flex">
+                <DeckPanel
+                  deck={deckA}
+                  channelVolume={effVolA}
+                  onTogglePlay={() => handleTogglePlay('A')}
+                  onCue={() => handleCue('A')}
+                  onSeek={(t) => handleSeek('A', t)}
+                  onTimeUpdate={(t, d) => handleTimeUpdate('A', t, d)}
+                  onEnded={() => handleEnded('A')}
+                  onChangePitch={(s) => handleChangePitch('A', s)}
+                  onChangeTrackBaseKey={(k) => {
+                    if (!deckA.track) return;
+                    const id = deckA.track.id;
+                    setDeckA((p) =>
+                      p.track ? { ...p, track: { ...p.track, musicalKey: k } } : p
+                    );
+                    setTracks((prev) =>
+                      prev.map((t) => (t.id === id ? { ...t, musicalKey: k } : t))
+                    );
+                  }}
+                  onChangeSource={(src) => handleChangeSource('A', src)}
+                  onToggleExpand={() =>
+                    setDeckA((p) => ({ ...p, isExpanded: !p.isExpanded }))
+                  }
+                  onToggleLyricsOverlay={() =>
+                    setDeckA((p) => ({ ...p, showLyricsOverlay: !p.showLyricsOverlay }))
+                  }
+                  onRequestAiLyrics={() => {
+                    if (deckA.track) setLyricsModalTrackId(deckA.track.id);
+                  }}
+                  onChangeStemMode={(mode) => handleChangeStemMode('A', mode)}
+                  onSelectYoutubeTab={() => {
+                    setLibraryTab('youtube');
+                    setMobileTab('library');
+                  }}
+                  onUnloadTrack={() => handleUnloadDeck('A')}
+                />
+              </div>
 
-              <MixerPanel
-                mixer={mixer}
-                onChangeChannel={handleChangeChannel}
-                onChangeCrossfader={(val) =>
-                  setMixer((prev) => ({ ...prev, crossfader: val }))
-                }
-                onToggleAutoMix={handleToggleAutoMix}
-                onManualCrossfadeNow={handleManualCrossfadeNow}
-                onFocusFiles={() => {
-                  setLibraryTab('local');
-                  libraryRef.current?.scrollIntoView({ behavior: 'smooth' });
-                }}
-              />
+              <div className="order-3 col-span-2 lg:order-2 lg:col-span-1 flex min-h-0">
+                <MixerPanel
+                  mixer={mixer}
+                  onChangeChannel={handleChangeChannel}
+                  onChangeCrossfader={(val) =>
+                    setMixer((prev) => ({ ...prev, crossfader: val }))
+                  }
+                  onToggleAutoMix={handleToggleAutoMix}
+                  onManualCrossfadeNow={handleManualCrossfadeNow}
+                  onFocusFiles={() => {
+                    setLibraryTab('local');
+                    setMobileTab('library');
+                    libraryRef.current?.scrollIntoView({ behavior: 'smooth' });
+                  }}
+                />
+              </div>
 
-              <DeckPanel
-                deck={deckB}
-                channelVolume={effVolB}
-                onTogglePlay={() => handleTogglePlay('B')}
-                onCue={() => handleCue('B')}
-                onSeek={(t) => handleSeek('B', t)}
-                onTimeUpdate={(t, d) => handleTimeUpdate('B', t, d)}
-                onEnded={() => handleEnded('B')}
-                onChangePitch={(s) => handleChangePitch('B', s)}
-                onChangeTrackBaseKey={(k) => {
-                  if (!deckB.track) return;
-                  const id = deckB.track.id;
-                  setDeckB((p) =>
-                    p.track ? { ...p, track: { ...p.track, musicalKey: k } } : p
-                  );
-                  setTracks((prev) =>
-                    prev.map((t) => (t.id === id ? { ...t, musicalKey: k } : t))
-                  );
-                }}
-                onChangeSource={(src) => handleChangeSource('B', src)}
-                onToggleExpand={() =>
-                  setDeckB((p) => ({ ...p, isExpanded: !p.isExpanded }))
-                }
-                onToggleLyricsOverlay={() =>
-                  setDeckB((p) => ({ ...p, showLyricsOverlay: !p.showLyricsOverlay }))
-                }
-                onRequestAiLyrics={() => {
-                  if (deckB.track) setLyricsModalTrackId(deckB.track.id);
-                }}
-                onChangeStemMode={(mode) => handleChangeStemMode('B', mode)}
-                onSelectYoutubeTab={() => setLibraryTab('youtube')}
-              />
+              <div className="order-2 col-span-1 lg:order-3 lg:flex-1 min-w-0 flex">
+                <DeckPanel
+                  deck={deckB}
+                  channelVolume={effVolB}
+                  onTogglePlay={() => handleTogglePlay('B')}
+                  onCue={() => handleCue('B')}
+                  onSeek={(t) => handleSeek('B', t)}
+                  onTimeUpdate={(t, d) => handleTimeUpdate('B', t, d)}
+                  onEnded={() => handleEnded('B')}
+                  onChangePitch={(s) => handleChangePitch('B', s)}
+                  onChangeTrackBaseKey={(k) => {
+                    if (!deckB.track) return;
+                    const id = deckB.track.id;
+                    setDeckB((p) =>
+                      p.track ? { ...p, track: { ...p.track, musicalKey: k } } : p
+                    );
+                    setTracks((prev) =>
+                      prev.map((t) => (t.id === id ? { ...t, musicalKey: k } : t))
+                    );
+                  }}
+                  onChangeSource={(src) => handleChangeSource('B', src)}
+                  onToggleExpand={() =>
+                    setDeckB((p) => ({ ...p, isExpanded: !p.isExpanded }))
+                  }
+                  onToggleLyricsOverlay={() =>
+                    setDeckB((p) => ({ ...p, showLyricsOverlay: !p.showLyricsOverlay }))
+                  }
+                  onRequestAiLyrics={() => {
+                    if (deckB.track) setLyricsModalTrackId(deckB.track.id);
+                  }}
+                  onChangeStemMode={(mode) => handleChangeStemMode('B', mode)}
+                  onSelectYoutubeTab={() => {
+                    setLibraryTab('youtube');
+                    setMobileTab('library');
+                  }}
+                  onUnloadTrack={() => handleUnloadDeck('B')}
+                />
+              </div>
             </section>
 
             {/* LOWER SECTION: LIBRARY + SAMPLER */}
             <section
               ref={libraryRef}
-              className="flex-1 min-h-0 flex flex-col lg:flex-row gap-2.5 overflow-hidden"
+              className={`${
+                mobileTab === 'library' || mobileTab === 'sampler'
+                  ? 'flex'
+                  : 'hidden lg:flex'
+              } flex-1 min-h-0 flex-col lg:flex-row gap-2.5 overflow-hidden`}
             >
-              <LibraryPanel
-                activeTab={libraryTab}
-                onSelectTab={(tab) => {
-                  setLibraryTab(tab);
-                  if (tab === 'youtube' && ytResults.length === 0) {
-                    handleSearchYoutube('Salsa Karaoke');
-                  }
-                }}
-                playlists={playlists}
-                selectedPlaylistId={selectedPlaylistId}
-                onSelectPlaylist={setSelectedPlaylistId}
-                onCreatePlaylist={(name) => {
-                  const id = `pl-${Date.now()}`;
-                  setPlaylists((prev) => [...prev, { id, name }]);
-                  setSelectedPlaylistId(id);
-                  setLibraryTab('local');
-                  showToast(`Carpeta creada: ${name}`);
-                }}
-                onDeletePlaylist={(plId) => {
-                  setPlaylists((prev) => prev.filter((p) => p.id !== plId));
-                  setTracks((prev) =>
-                    prev.map((t) => ({
-                      ...t,
-                      playlistIds: t.playlistIds.filter((id) => id !== plId),
-                    }))
-                  );
-                  if (selectedPlaylistId === plId) {
+              <div
+                className={`${
+                  mobileTab === 'library'
+                    ? 'flex flex-1 min-h-0'
+                    : 'hidden lg:flex lg:flex-1 lg:min-h-0'
+                }`}
+              >
+                <LibraryPanel
+                  activeTab={libraryTab}
+                  onSelectTab={(tab) => {
+                    setLibraryTab(tab);
+                    if (tab === 'youtube' && ytResults.length === 0) {
+                      handleSearchYoutube('Salsa Karaoke');
+                    }
+                  }}
+                  playlists={playlists}
+                  selectedPlaylistId={selectedPlaylistId}
+                  onSelectPlaylist={setSelectedPlaylistId}
+                  onCreatePlaylist={(name) => {
+                    const id = `pl-${Date.now()}`;
+                    setPlaylists((prev) => [...prev, { id, name }]);
+                    setSelectedPlaylistId(id);
+                    setLibraryTab('local');
+                    showToast(`Carpeta creada: ${name}`);
+                  }}
+                  onDeletePlaylist={(plId) => {
+                    setPlaylists((prev) => prev.filter((p) => p.id !== plId));
+                    setTracks((prev) =>
+                      prev.map((t) => ({
+                        ...t,
+                        playlistIds: t.playlistIds.filter((id) => id !== plId),
+                      }))
+                    );
+                    if (selectedPlaylistId === plId) {
+                      setSelectedPlaylistId(null);
+                    }
+                    showToast('Carpeta eliminada');
+                  }}
+                  tracks={tracks}
+                  onImportFiles={handleImportFiles}
+                  onLoadToDeck={handleLoadToDeck}
+                  onDeleteTrack={(id) => {
+                    const target = tracks.find((t) => t.id === id);
+                    if (target?.audioUrl?.startsWith('blob:')) {
+                      URL.revokeObjectURL(target.audioUrl);
+                    }
+                    if (target?.videoUrl?.startsWith('blob:')) {
+                      URL.revokeObjectURL(target.videoUrl);
+                    }
+                    deleteMediaBlob(`track:${id}`);
+                    setTracks((prev) => prev.filter((t) => t.id !== id));
+                  }}
+                  onClearLibrary={async () => {
+                    tracks.forEach((t) => {
+                      if (t.audioUrl?.startsWith('blob:')) URL.revokeObjectURL(t.audioUrl);
+                      if (t.videoUrl?.startsWith('blob:')) URL.revokeObjectURL(t.videoUrl);
+                    });
+                    await clearPersistedState();
+                    setTracks([]);
+                    setPlaylists([]);
                     setSelectedPlaylistId(null);
-                  }
-                  showToast('Carpeta eliminada');
-                }}
-                tracks={tracks}
-                onImportFiles={handleImportFiles}
-                onLoadToDeck={handleLoadToDeck}
-                onDeleteTrack={(id) => {
-                  const target = tracks.find((t) => t.id === id);
-                  if (target?.audioUrl?.startsWith('blob:')) {
-                    URL.revokeObjectURL(target.audioUrl);
-                  }
-                  if (target?.videoUrl?.startsWith('blob:')) {
-                    URL.revokeObjectURL(target.videoUrl);
-                  }
-                  deleteMediaBlob(`track:${id}`);
-                  setTracks((prev) => prev.filter((t) => t.id !== id));
-                }}
-                onClearLibrary={async () => {
-                  tracks.forEach((t) => {
-                    if (t.audioUrl?.startsWith('blob:')) URL.revokeObjectURL(t.audioUrl);
-                    if (t.videoUrl?.startsWith('blob:')) URL.revokeObjectURL(t.videoUrl);
-                  });
-                  await clearPersistedState();
-                  setTracks([]);
-                  setPlaylists([]);
-                  setSelectedPlaylistId(null);
-                  setDeckA(createInitialDeck('A'));
-                  setDeckB(createInitialDeck('B'));
-                  showToast('Biblioteca limpiada desde cero');
-                }}
-                onOpenAiLyrics={(track) => setLyricsModalTrackId(track.id)}
-                onOpenStemModal={() => setShowStemModal(true)}
-                onExportTrackOrShow={handleExportTrackOrShow}
-                ytResults={ytResults}
-                ytLoading={ytLoading}
-                ytError={ytError}
-                onSearchYoutube={handleSearchYoutube}
-                onLoadYoutubeToDeck={handleLoadYoutubeToDeck}
-              />
+                    setDeckA(createInitialDeck('A'));
+                    setDeckB(createInitialDeck('B'));
+                    showToast('Biblioteca limpiada desde cero');
+                  }}
+                  onOpenAiLyrics={(track) => setLyricsModalTrackId(track.id)}
+                  onOpenStemModal={() => setShowStemModal(true)}
+                  onExportTrackOrShow={handleExportTrackOrShow}
+                  ytResults={ytResults}
+                  ytLoading={ytLoading}
+                  ytError={ytError}
+                  onSearchYoutube={handleSearchYoutube}
+                  onLoadYoutubeToDeck={handleLoadYoutubeToDeck}
+                />
+              </div>
 
-              <SamplerPanel
-                banks={samplerBanks}
-                activeBankId={activeBankId}
-                onSelectBank={setActiveBankId}
-                onCreateBank={handleCreateSamplerBank}
-                onRenameBank={handleRenameSamplerBank}
-                onDeleteBank={handleDeleteSamplerBank}
-                triggerMode={triggerMode}
-                onChangeTriggerMode={setTriggerMode}
-                isCollapsed={samplerCollapsed}
-                onToggleCollapse={() => setSamplerCollapsed((v) => !v)}
-                isFullPadsView={false}
-                onToggleFullPadsView={() => setWorkspaceMode('pads')}
-                onEditPad={setEditingPad}
-                onDropAudioOnPad={handleDropAudioOnPad}
-              />
+              <div
+                className={`${
+                  mobileTab === 'sampler'
+                    ? 'flex flex-1 min-h-0'
+                    : 'hidden lg:flex lg:min-h-0'
+                }`}
+              >
+                <SamplerPanel
+                  banks={samplerBanks}
+                  activeBankId={activeBankId}
+                  onSelectBank={setActiveBankId}
+                  onCreateBank={handleCreateSamplerBank}
+                  onRenameBank={handleRenameSamplerBank}
+                  onDeleteBank={handleDeleteSamplerBank}
+                  triggerMode={triggerMode}
+                  onChangeTriggerMode={setTriggerMode}
+                  isCollapsed={mobileTab === 'sampler' ? false : samplerCollapsed}
+                  onToggleCollapse={() => setSamplerCollapsed((v) => !v)}
+                  isFullPadsView={false}
+                  onToggleFullPadsView={() => setWorkspaceMode('pads')}
+                  onEditPad={setEditingPad}
+                  onDropAudioOnPad={handleDropAudioOnPad}
+                />
+              </div>
             </section>
           </>
         )}
       </main>
+
+      {/* Mobile Bottom Navigation Bar (< lg) matching cellular reference */}
+      <nav
+        aria-label="Navegación móvil"
+        className="lg:hidden h-[58px] shrink-0 bg-[#0A0C12] border-t border-white/10 grid grid-cols-5 items-center px-1 select-none"
+      >
+        <button
+          type="button"
+          onClick={() => setMobileTab('decks')}
+          className={`flex flex-col items-center justify-center gap-0.5 py-1 rounded-xl transition-colors cursor-pointer ${
+            mobileTab === 'decks' ? 'text-[#F4256A]' : 'text-slate-400 hover:text-slate-200'
+          }`}
+        >
+          <span
+            className={`px-3 py-1 rounded-xl ${
+              mobileTab === 'decks' ? 'bg-[#F4256A]/15' : ''
+            }`}
+          >
+            <Disc className="w-5 h-5" />
+          </span>
+          <span className="text-[10px] font-semibold leading-none">Decks</span>
+        </button>
+
+        <button
+          type="button"
+          onClick={() => setMobileTab('library')}
+          className={`flex flex-col items-center justify-center gap-0.5 py-1 rounded-xl transition-colors cursor-pointer ${
+            mobileTab === 'library' ? 'text-[#F4256A]' : 'text-slate-400 hover:text-slate-200'
+          }`}
+        >
+          <span
+            className={`px-3 py-1 rounded-xl ${
+              mobileTab === 'library' ? 'bg-[#F4256A]/15' : ''
+            }`}
+          >
+            <Library className="w-5 h-5" />
+          </span>
+          <span className="text-[10px] font-semibold leading-none">Library</span>
+        </button>
+
+        <button
+          type="button"
+          onClick={() => setMobileTab('sampler')}
+          className={`flex flex-col items-center justify-center gap-0.5 py-1 rounded-xl transition-colors cursor-pointer ${
+            mobileTab === 'sampler' ? 'text-[#F4256A]' : 'text-slate-400 hover:text-slate-200'
+          }`}
+        >
+          <span
+            className={`px-3 py-1 rounded-xl ${
+              mobileTab === 'sampler' ? 'bg-[#F4256A]/15' : ''
+            }`}
+          >
+            <LayoutGrid className="w-5 h-5" />
+          </span>
+          <span className="text-[10px] font-semibold leading-none">Sampler</span>
+        </button>
+
+        <button
+          type="button"
+          onClick={() => setShowAiConfigModal(true)}
+          className="flex flex-col items-center justify-center gap-0.5 py-1 rounded-xl text-slate-400 hover:text-slate-200 transition-colors cursor-pointer"
+        >
+          <span className="px-3 py-1">
+            <Settings className="w-5 h-5" />
+          </span>
+          <span className="text-[10px] font-semibold leading-none">Ajustes</span>
+        </button>
+
+        <button
+          type="button"
+          onClick={handleToggleFullscreen}
+          className="flex flex-col items-center justify-center gap-0.5 py-1 rounded-xl text-slate-400 hover:text-slate-200 transition-colors cursor-pointer"
+        >
+          <span className="px-3 py-1">
+            <Maximize className="w-5 h-5" />
+          </span>
+          <span className="text-[10px] font-semibold leading-none">Full</span>
+        </button>
+      </nav>
 
       {/* Modals */}
       {lyricsModalTrack && (
@@ -950,6 +1088,12 @@ export default function App() {
           config={aiConfig}
           onChange={setAiConfig}
           onClose={() => setShowAiConfigModal(false)}
+          onLogout={() => {
+            setDeckA((p) => ({ ...p, isPlaying: false }));
+            setDeckB((p) => ({ ...p, isPlaying: false }));
+            audioEngine.stopAllPads();
+            setInStudio(false);
+          }}
         />
       )}
 
@@ -963,7 +1107,7 @@ export default function App() {
 
       {/* Subtle Bottom Toast */}
       {toastMsg && (
-        <div className="fixed bottom-4 left-1/2 -translate-x-1/2 z-50 px-4 py-2 rounded-lg bg-[#141824]/95 border border-[#F4256A]/50 text-xs font-semibold text-white shadow-xl pointer-events-none">
+        <div className="fixed bottom-16 lg:bottom-4 left-1/2 -translate-x-1/2 z-50 px-4 py-2 rounded-lg bg-[#141824]/95 border border-[#F4256A]/50 text-xs font-semibold text-white shadow-xl pointer-events-none">
           {toastMsg}
         </div>
       )}

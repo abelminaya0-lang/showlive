@@ -71,7 +71,7 @@ export const TopBar: React.FC<TopBarProps> = ({
   };
 
   return (
-    <header className="h-12 w-full bg-[#090B10] border-b border-white/10 px-4 flex items-center justify-between gap-4 shrink-0 select-none">
+    <header className="hidden lg:flex h-12 w-full bg-[#090B10] border-b border-white/10 px-4 items-center justify-between gap-4 shrink-0 select-none">
       {/* Brand */}
       <div className="flex items-center gap-2.5 shrink-0">
         <div className="w-7 h-7 rounded-full bg-gradient-to-br from-[#F4256A] to-[#BE123C] flex items-center justify-center shadow-md shadow-[#F4256A]/25">

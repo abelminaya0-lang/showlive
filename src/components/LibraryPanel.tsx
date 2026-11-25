@@ -110,21 +110,21 @@ export const LibraryPanel: React.FC<LibraryPanelProps> = ({
   };
 
   return (
-    <div className="flex-1 min-w-0 bg-[#0A0C12] border border-white/10 rounded-lg flex overflow-hidden">
-      {/* Left Sidebar: LIBRARY & PLAYLISTS */}
-      <aside className="w-[175px] sm:w-[195px] shrink-0 bg-[#090B10] border-r border-white/10 p-2.5 flex flex-col gap-4 select-none overflow-y-auto">
-        <div>
-          <p className="text-[10px] font-bold tracking-wider uppercase text-slate-500 px-2 mb-2">
+    <div className="flex-1 min-w-0 bg-[#0A0C12] border border-white/10 rounded-lg flex flex-col md:flex-row overflow-hidden">
+      {/* Left Sidebar (Desktop) / Top Compact Bar (Mobile): LIBRARY & PLAYLISTS */}
+      <aside className="w-full md:w-[195px] shrink-0 bg-[#090B10] border-b md:border-b-0 md:border-r border-white/10 p-2 md:p-2.5 flex flex-col gap-2 md:gap-4 select-none overflow-y-auto max-h-[170px] md:max-h-none">
+        <div className="flex md:flex-col items-center md:items-stretch justify-between gap-2">
+          <p className="hidden md:block text-[10px] font-bold tracking-wider uppercase text-slate-500 px-2 mb-1">
             Library
           </p>
-          <div className="flex flex-col gap-1">
+          <div className="flex md:flex-col gap-1 flex-1 md:flex-none">
             <button
               type="button"
               onClick={() => {
                 onSelectTab('local');
                 onSelectPlaylist(null);
               }}
-              className={`flex items-center gap-2 px-2.5 py-2 rounded-md text-xs font-semibold transition-colors cursor-pointer ${
+              className={`flex-1 md:flex-none flex items-center justify-center md:justify-start gap-1.5 md:gap-2 px-2.5 py-2 rounded-md text-xs font-semibold transition-colors cursor-pointer ${
                 activeTab === 'local' && !selectedPlaylistId
                   ? 'bg-[#26111B] border border-[#F4256A]/60 text-[#F973A2]'
                   : 'text-slate-300 hover:bg-white/5 border border-transparent'
@@ -137,7 +137,7 @@ export const LibraryPanel: React.FC<LibraryPanelProps> = ({
             <button
               type="button"
               onClick={() => onSelectTab('youtube')}
-              className={`flex items-center gap-2 px-2.5 py-2 rounded-md text-xs font-semibold transition-colors cursor-pointer ${
+              className={`flex-1 md:flex-none flex items-center justify-center md:justify-start gap-1.5 md:gap-2 px-2.5 py-2 rounded-md text-xs font-semibold transition-colors cursor-pointer ${
                 activeTab === 'youtube'
                   ? 'bg-[#26111B] border border-[#F4256A]/60 text-[#F973A2]'
                   : 'text-slate-300 hover:bg-white/5 border border-transparent'
@@ -147,11 +147,21 @@ export const LibraryPanel: React.FC<LibraryPanelProps> = ({
               <span className="truncate">YouTube Karaoke</span>
             </button>
           </div>
+
+          <button
+            type="button"
+            onClick={() => folderInputRef.current?.click()}
+            className="md:hidden flex items-center gap-1 px-2.5 py-2 rounded-md bg-[#131722] border border-white/10 text-[11px] font-medium text-slate-200 cursor-pointer shrink-0"
+            title="Cargar Carpeta"
+          >
+            <FolderPlus className="w-3.5 h-3.5 text-cyan-400" />
+            <span>Carpeta</span>
+          </button>
         </div>
 
         {/* PLAYLISTS */}
         <div className="flex-1 min-h-0 flex flex-col">
-          <div className="flex items-center justify-between px-2 mb-2">
+          <div className="flex items-center justify-between px-1 md:px-2 mb-1 md:mb-2">
             <p className="text-[10px] font-bold tracking-wider uppercase text-slate-500">
               Playlists
             </p>
@@ -178,9 +188,9 @@ export const LibraryPanel: React.FC<LibraryPanelProps> = ({
             </form>
           )}
 
-          <div className="flex flex-col gap-1 overflow-y-auto">
+          <div className="flex md:flex-col gap-1 overflow-x-auto md:overflow-y-auto pb-1 md:pb-0 no-scrollbar">
             {playlists.length === 0 ? (
-              <p className="px-2 py-1 text-[11px] text-slate-600">
+              <p className="px-2 py-0.5 text-[11px] text-slate-600 whitespace-nowrap">
                 Sin carpetas aún
               </p>
             ) : (
@@ -189,10 +199,10 @@ export const LibraryPanel: React.FC<LibraryPanelProps> = ({
                 return (
                   <div
                     key={pl.id}
-                    className={`group flex items-center justify-between gap-1 px-2 py-1.5 rounded-md transition-colors ${
+                    className={`group flex items-center justify-between gap-1 px-2 py-1 md:py-1.5 rounded-md transition-colors shrink-0 ${
                       active
                         ? 'bg-[#26111B] border border-[#F4256A]/50 text-white'
-                        : 'text-slate-400 hover:text-slate-200 hover:bg-white/5 border border-transparent'
+                        : 'text-slate-400 hover:text-slate-200 hover:bg-white/5 border border-white/5 md:border-transparent'
                     }`}
                   >
                     <button
@@ -201,15 +211,15 @@ export const LibraryPanel: React.FC<LibraryPanelProps> = ({
                         onSelectTab('local');
                         onSelectPlaylist(pl.id);
                       }}
-                      className="flex items-center gap-2 min-w-0 flex-1 text-xs font-medium text-left cursor-pointer"
+                      className="flex items-center gap-1.5 md:gap-2 min-w-0 flex-1 text-xs font-medium text-left cursor-pointer"
                     >
                       <Folder className="w-3.5 h-3.5 shrink-0 text-slate-400" />
-                      <span className="truncate">{pl.name}</span>
+                      <span className="truncate max-w-[110px] md:max-w-none">{pl.name}</span>
                     </button>
                     <button
                       type="button"
                       onClick={() => onDeletePlaylist(pl.id)}
-                      className="opacity-0 group-hover:opacity-100 p-0.5 rounded hover:bg-red-500/20 text-slate-500 hover:text-red-400 cursor-pointer transition-opacity"
+                      className="md:opacity-0 group-hover:opacity-100 p-0.5 rounded hover:bg-red-500/20 text-slate-500 hover:text-red-400 cursor-pointer transition-opacity"
                       title="Eliminar carpeta"
                     >
                       <Trash2 className="w-3 h-3" />
@@ -220,8 +230,8 @@ export const LibraryPanel: React.FC<LibraryPanelProps> = ({
             )}
           </div>
 
-          {/* Import Local Folder button */}
-          <div className="mt-auto pt-3 border-t border-white/5">
+          {/* Import Local Folder button (Desktop) */}
+          <div className="hidden md:block mt-auto pt-3 border-t border-white/5">
             <button
               type="button"
               onClick={() => folderInputRef.current?.click()}

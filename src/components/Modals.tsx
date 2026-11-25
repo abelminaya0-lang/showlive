@@ -415,12 +415,14 @@ interface AiModelModalProps {
   config: IAModelConfig;
   onChange: (next: IAModelConfig) => void;
   onClose: () => void;
+  onLogout?: () => void;
 }
 
 export const AiModelModal: React.FC<AiModelModalProps> = ({
   config,
   onChange,
   onClose,
+  onLogout,
 }) => {
   return (
     <div className="fixed inset-0 z-50 bg-black/75 backdrop-blur-sm flex items-center justify-center p-4">
@@ -501,7 +503,21 @@ export const AiModelModal: React.FC<AiModelModalProps> = ({
             />
           </label>
 
-          <div className="flex justify-end pt-2">
+          <div className="flex items-center justify-between gap-2 pt-2">
+            {onLogout ? (
+              <button
+                type="button"
+                onClick={() => {
+                  onClose();
+                  onLogout();
+                }}
+                className="px-3.5 py-2 rounded-lg bg-[#161B26] hover:bg-red-600/20 border border-white/10 hover:border-red-500/40 text-xs font-semibold text-slate-300 hover:text-red-300 cursor-pointer"
+              >
+                Salir al Inicio
+              </button>
+            ) : (
+              <span />
+            )}
             <button
               type="button"
               onClick={onClose}

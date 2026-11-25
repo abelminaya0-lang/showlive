@@ -44,6 +44,7 @@ export const SamplerPanel: React.FC<SamplerPanelProps> = ({
   onDropAudioOnPad,
 }) => {
   const [activePadIds, setActivePadIds] = useState<Set<number>>(new Set());
+  const [editMode, setEditMode] = useState(false);
   const activeBank = banks.find((b) => b.id === activeBankId) || banks[0];
 
   // Preload buffers for active bank
@@ -57,7 +58,7 @@ export const SamplerPanel: React.FC<SamplerPanelProps> = ({
   }, [activeBank]);
 
   const handleTrigger = (pad: SamplerPad) => {
-    if (!pad.fxPreset && !pad.customAudioUrl) {
+    if (editMode || (!pad.fxPreset && !pad.customAudioUrl)) {
       onEditPad(pad);
       return;
     }
@@ -237,12 +238,12 @@ export const SamplerPanel: React.FC<SamplerPanelProps> = ({
           : 'w-full lg:w-[445px] xl:w-[480px] shrink-0 flex'
       } gap-1.5`}
     >
-      {/* Vertical CERRAR SAMPLER tab (hidden in full Pads view) */}
+      {/* Vertical CERRAR SAMPLER tab (hidden in full Pads view and on mobile) */}
       {!isFullPadsView && (
         <button
           type="button"
           onClick={onToggleCollapse}
-          className="w-6 shrink-0 bg-[#0D1018] hover:bg-[#171C2A] border border-white/10 rounded-lg flex items-center justify-center cursor-pointer transition-colors"
+          className="hidden lg:flex w-6 shrink-0 bg-[#0D1018] hover:bg-[#171C2A] border border-white/10 rounded-lg items-center justify-center cursor-pointer transition-colors"
           title="Ocultar Sampler"
         >
           <span className="[writing-mode:vertical-rl] rotate-180 text-[9px] font-bold tracking-widest uppercase text-slate-400 hover:text-white">
@@ -252,9 +253,9 @@ export const SamplerPanel: React.FC<SamplerPanelProps> = ({
       )}
 
       {/* Main Sampler Chassis */}
-      <div className="flex-1 min-w-0 bg-[#0A0C12] border border-white/10 rounded-lg p-3 flex flex-col justify-between">
+      <div className="flex-1 min-w-0 bg-[#0A0C12] border border-white/10 rounded-lg p-3 flex flex-col justify-between overflow-y-auto">
         {/* Top Sampler Header */}
-        <div className="flex flex-col gap-2 mb-2.5">
+        <div className="flex flex-col gap-2 mb-2.5 shrink-0">
           <div className="flex items-center justify-between gap-2 flex-wrap">
             <div className="flex items-center gap-1.5">
               <Music2 className="w-4 h-4 text-[#F4256A]" />
@@ -263,9 +264,23 @@ export const SamplerPanel: React.FC<SamplerPanelProps> = ({
               </span>
             </div>
 
-            <span className="text-[10px] font-mono-tabular text-slate-400">
-              1-4, Q-R, A-F, Z-V | Clic Der. = Opciones
-            </span>
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={() => setEditMode((v) => !v)}
+                className={`px-2 py-0.5 rounded text-[10px] font-bold border cursor-pointer transition-colors ${
+                  editMode
+                    ? 'bg-[#F4256A] border-[#F4256A] text-white'
+                    : 'bg-[#141824] border-white/10 text-slate-300 hover:text-white'
+                }`}
+                title="Activa para tocar cualquier Pad y editarlo"
+              >
+                {editMode ? 'Editando Pads' : 'Editar Pad'}
+              </button>
+              <span className="hidden sm:inline text-[10px] font-mono-tabular text-slate-400">
+                1-4, Q-R, A-F, Z-V
+              </span>
+            </div>
           </div>
 
           {/* Bank selector + controls + Mode selector */}
