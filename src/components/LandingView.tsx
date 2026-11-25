@@ -8,14 +8,21 @@ import {
   Grid,
   Loader2,
   Lock,
+  LogIn,
   LogOut,
+  MailCheck,
+  MessageCircle,
   Mic,
   Music,
   Play,
+  RefreshCw,
   ShieldCheck,
   Sliders,
   Youtube,
 } from 'lucide-react';
+
+const WHATSAPP_ACCESS_URL =
+  'https://wa.me/51964708446?text=Hola%2C%20quiero%20acceder%20al%20programa%20ShowLive';
 
 interface LandingViewProps {
   onOpenStudio: (initialTab?: 'local' | 'youtube') => void;
@@ -23,13 +30,16 @@ interface LandingViewProps {
   userEmail: string | null;
   userName: string | null;
   userPhoto: string | null;
+  emailVerified?: boolean;
   isAuthorized: boolean;
   isAdmin: boolean;
   clientSuspended?: boolean;
   accessRequestStatus?: 'pending' | 'approved' | 'rejected' | null;
-  onSignInGoogle: () => void;
+  onOpenLogin: () => void;
   onSignOut: () => void;
   onRequestAccess: () => void;
+  onResendVerification?: () => void;
+  onRefreshVerification?: () => void;
   onOpenAdminDashboard: () => void;
   authError?: string | null;
 }
@@ -40,25 +50,28 @@ export const LandingView: React.FC<LandingViewProps> = ({
   userEmail,
   userName,
   userPhoto,
+  emailVerified = true,
   isAuthorized,
   isAdmin,
   clientSuspended,
   accessRequestStatus,
-  onSignInGoogle,
+  onOpenLogin,
   onSignOut,
   onRequestAccess,
+  onResendVerification,
+  onRefreshVerification,
   onOpenAdminDashboard,
   authError,
 }) => {
   const handlePreviewClick = () => {
     if (!userEmail) {
-      onSignInGoogle();
+      onOpenLogin();
     } else if (isAuthorized) {
       onOpenStudio('local');
     }
   };
   return (
-    <div className="min-h-screen w-full bg-[#090A0F] text-slate-100 flex items-center justify-center relative overflow-hidden">
+    <div className="min-h-screen w-full bg-[#090A0F] text-slate-100 flex flex-col relative overflow-hidden">
       {/* Subtle stage ambient glow */}
       <div
         className="pointer-events-none absolute -top-40 -left-40 w-[560px] h-[560px] rounded-full opacity-20 blur-[140px]"
@@ -69,7 +82,65 @@ export const LandingView: React.FC<LandingViewProps> = ({
         style={{ background: 'radial-gradient(circle, #2563EB 0%, transparent 70%)' }}
       />
 
-      <div className="w-full max-w-[1440px] mx-auto px-6 lg:px-12 py-10 grid grid-cols-1 lg:grid-cols-12 gap-10 lg:gap-12 items-center relative z-10">
+      {/* Top Header Bar with Login on the right */}
+      <header className="w-full max-w-[1440px] mx-auto px-6 lg:px-12 pt-5 pb-1 flex items-center justify-between gap-4 relative z-20">
+        <div className="flex items-center gap-2.5">
+          <div className="w-9 h-9 rounded-full bg-gradient-to-br from-[#F4256A] to-[#BE123C] flex items-center justify-center shadow-lg shadow-[#F4256A]/25">
+            <Mic className="w-4 h-4 text-white" />
+          </div>
+          <span className="font-display text-xl font-extrabold tracking-tight">
+            <span className="text-white">Show</span>
+            <span className="text-[#F4256A]">Live</span>
+          </span>
+        </div>
+
+        <div className="flex items-center gap-2.5">
+          {!userEmail ? (
+            <button
+              type="button"
+              onClick={onOpenLogin}
+              className="inline-flex items-center gap-2 px-4 py-2 rounded-full bg-[#131826] hover:bg-[#1B2236] border border-cyan-400/50 text-white text-xs sm:text-sm font-bold shadow-[0_0_20px_rgba(34,211,238,0.15)] transition-all cursor-pointer"
+            >
+              <LogIn className="w-4 h-4 text-cyan-400" />
+              <span>Iniciar sesión</span>
+            </button>
+          ) : (
+            <>
+              {isAdmin && (
+                <button
+                  type="button"
+                  onClick={onOpenAdminDashboard}
+                  className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-full bg-emerald-500/15 hover:bg-emerald-500/25 border border-emerald-500/40 text-emerald-300 text-xs font-bold cursor-pointer"
+                >
+                  <ShieldCheck className="w-4 h-4" />
+                  <span className="hidden sm:inline">Mi Dashboard</span>
+                </button>
+              )}
+              <button
+                type="button"
+                onClick={onSignOut}
+                className="inline-flex items-center gap-2 px-3.5 py-2 rounded-full bg-[#131826] hover:bg-[#1B2236] border border-white/15 text-slate-200 text-xs font-semibold cursor-pointer"
+              >
+                {userPhoto && (
+                  <img
+                    src={userPhoto}
+                    alt={userName || userEmail}
+                    referrerPolicy="no-referrer"
+                    className="w-5 h-5 rounded-full object-cover"
+                  />
+                )}
+                <span className="hidden sm:inline truncate max-w-[140px]">
+                  {userName || userEmail}
+                </span>
+                <LogOut className="w-3.5 h-3.5 text-slate-400" />
+              </button>
+            </>
+          )}
+        </div>
+      </header>
+
+      <div className="flex-1 flex items-center">
+        <div className="w-full max-w-[1440px] mx-auto px-6 lg:px-12 py-6 lg:py-8 grid grid-cols-1 lg:grid-cols-12 gap-10 lg:gap-12 items-center relative z-10">
         {/* Left Visual Stage & Tablet Console Preview */}
         <div className="lg:col-span-7">
           <div className="rounded-2xl border border-white/10 bg-[#0D1018] overflow-hidden shadow-[0_24px_80px_rgba(0,0,0,0.7)] relative">
@@ -366,7 +437,7 @@ export const LandingView: React.FC<LandingViewProps> = ({
           <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 mb-7">
             <button
               type="button"
-              onClick={() => (userEmail ? isAuthorized && onOpenStudio('local') : onSignInGoogle())}
+              onClick={() => (userEmail ? isAuthorized && onOpenStudio('local') : onOpenLogin())}
               className="text-left p-3.5 rounded-xl bg-[#11131C] border border-white/10 hover:border-[#F4256A]/50 transition-colors cursor-pointer"
             >
               <FolderOpen className="w-4 h-4 text-[#F4256A] mb-2" />
@@ -376,7 +447,7 @@ export const LandingView: React.FC<LandingViewProps> = ({
 
             <button
               type="button"
-              onClick={() => (userEmail ? isAuthorized && onOpenStudio('local') : onSignInGoogle())}
+              onClick={() => (userEmail ? isAuthorized && onOpenStudio('local') : onOpenLogin())}
               className="text-left p-3.5 rounded-xl bg-[#11131C] border border-white/10 hover:border-[#F4256A]/50 transition-colors cursor-pointer"
             >
               <Music className="w-4 h-4 text-[#F4256A] mb-2" />
@@ -386,7 +457,7 @@ export const LandingView: React.FC<LandingViewProps> = ({
 
             <button
               type="button"
-              onClick={() => (userEmail ? isAuthorized && onOpenStudio('youtube') : onSignInGoogle())}
+              onClick={() => (userEmail ? isAuthorized && onOpenStudio('youtube') : onOpenLogin())}
               className="text-left p-3.5 rounded-xl bg-[#11131C] border border-white/10 hover:border-[#F4256A]/50 transition-colors cursor-pointer"
             >
               <Youtube className="w-4 h-4 text-[#F4256A] mb-2" />
@@ -396,7 +467,7 @@ export const LandingView: React.FC<LandingViewProps> = ({
 
             <button
               type="button"
-              onClick={() => (userEmail ? isAuthorized && onOpenStudio('local') : onSignInGoogle())}
+              onClick={() => (userEmail ? isAuthorized && onOpenStudio('local') : onOpenLogin())}
               className="text-left p-3.5 rounded-xl bg-[#11131C] border border-white/10 hover:border-[#F4256A]/50 transition-colors cursor-pointer"
             >
               <Sliders className="w-4 h-4 text-[#F4256A] mb-2" />
@@ -406,7 +477,7 @@ export const LandingView: React.FC<LandingViewProps> = ({
 
             <button
               type="button"
-              onClick={() => (userEmail ? isAuthorized && onOpenStudio('local') : onSignInGoogle())}
+              onClick={() => (userEmail ? isAuthorized && onOpenStudio('local') : onOpenLogin())}
               className="text-left p-3.5 rounded-xl bg-[#11131C] border border-white/10 hover:border-[#F4256A]/50 transition-colors col-span-2 cursor-pointer"
             >
               <Grid className="w-4 h-4 text-[#F4256A] mb-2" />
@@ -425,29 +496,75 @@ export const LandingView: React.FC<LandingViewProps> = ({
           {authLoading ? (
             <div className="inline-flex items-center gap-2.5 px-6 py-3.5 rounded-xl bg-[#141824] border border-white/10 text-sm font-semibold text-slate-300">
               <Loader2 className="w-4 h-4 animate-spin text-[#F4256A]" />
-              <span>Verificando acceso con Google...</span>
+              <span>Verificando acceso...</span>
             </div>
           ) : !userEmail ? (
-            <div className="space-y-2.5">
-              <button
-                type="button"
-                onClick={onSignInGoogle}
-                className="inline-flex items-center gap-3 px-7 py-4 rounded-xl bg-gradient-to-r from-[#F4256A] to-[#E11D48] hover:from-[#FF3478] hover:to-[#F4256A] text-white font-display font-bold text-base shadow-[0_12px_32px_rgba(244,37,106,0.35)] transition-all cursor-pointer active:scale-[0.99]"
-              >
-                <span className="w-5 h-5 rounded-full bg-white flex items-center justify-center">
-                  <svg className="w-3.5 h-3.5" viewBox="0 0 24 24">
-                    <path
-                      fill="#EA4335"
-                      d="M12 10.2v3.9h5.5c-.2 1.3-1.5 3.9-5.5 3.9-3.3 0-6-2.7-6-6s2.7-6 6-6c1.9 0 3.1.8 3.9 1.5l2.7-2.6C16.9 3.3 14.7 2.4 12 2.4 6.7 2.4 2.4 6.7 2.4 12s4.3 9.6 9.6 9.6c5.5 0 9.2-3.9 9.2-9.4 0-.6-.1-1.1-.2-1.6H12z"
-                    />
-                  </svg>
-                </span>
-                <span>Iniciar sesión con Google</span>
-                <ArrowRight className="w-5 h-5" />
-              </button>
+            <div className="space-y-3">
+              <div className="flex flex-wrap items-center gap-3">
+                <a
+                  href={WHATSAPP_ACCESS_URL}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="inline-flex items-center gap-2.5 px-6 py-4 rounded-xl bg-gradient-to-r from-[#16A34A] to-[#15803D] hover:from-[#22C55E] hover:to-[#16A34A] text-white font-display font-bold text-sm sm:text-base shadow-[0_12px_32px_rgba(22,163,74,0.35)] transition-all active:scale-[0.99]"
+                >
+                  <MessageCircle className="w-5 h-5" />
+                  <span>Acceder por WhatsApp · 964 708 446</span>
+                </a>
+
+                <button
+                  type="button"
+                  onClick={onOpenLogin}
+                  className="inline-flex items-center gap-2 px-5 py-4 rounded-xl bg-[#131826] hover:bg-[#1B2236] border border-cyan-400/50 text-white font-display font-bold text-sm transition-all cursor-pointer"
+                >
+                  <LogIn className="w-4 h-4 text-cyan-400" />
+                  <span>Ya tengo acceso</span>
+                </button>
+              </div>
               <p className="text-[11px] text-slate-400">
-                Acceso exclusivo para clientes autorizados. Tus playlists y samplers se guardan en tu cuenta.
+                Solicita tu acceso directo por WhatsApp al <strong className="text-emerald-400">964 708 446</strong> o inicia sesión arriba si ya estás autorizado.
               </p>
+            </div>
+          ) : !emailVerified ? (
+            <div className="rounded-xl bg-[#111420] border border-cyan-500/35 p-4 space-y-3">
+              <div className="flex items-center gap-2.5">
+                <MailCheck className="w-5 h-5 text-cyan-400 shrink-0" />
+                <div className="min-w-0">
+                  <p className="text-xs font-bold text-white">Confirma tu correo electrónico</p>
+                  <p className="text-[11px] text-slate-400 truncate">{userEmail}</p>
+                </div>
+              </div>
+              <p className="text-xs text-slate-300 leading-relaxed">
+                Te enviamos un enlace de verificación a tu bandeja. Ábrelo y luego pulsa &ldquo;Ya confirmé mi correo&rdquo;.
+              </p>
+              <div className="flex flex-wrap items-center gap-2">
+                {onRefreshVerification && (
+                  <button
+                    type="button"
+                    onClick={onRefreshVerification}
+                    className="inline-flex items-center gap-1.5 px-4 py-2 rounded-lg bg-cyan-600 hover:bg-cyan-500 text-white text-xs font-bold cursor-pointer"
+                  >
+                    <RefreshCw className="w-3.5 h-3.5" />
+                    <span>Ya confirmé mi correo</span>
+                  </button>
+                )}
+                {onResendVerification && (
+                  <button
+                    type="button"
+                    onClick={onResendVerification}
+                    className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-lg bg-[#181C28] hover:bg-[#22283A] border border-white/10 text-slate-200 text-xs font-semibold cursor-pointer"
+                  >
+                    <span>Reenviar correo</span>
+                  </button>
+                )}
+                <button
+                  type="button"
+                  onClick={onSignOut}
+                  className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-lg bg-[#181C28] hover:bg-[#22283A] border border-white/10 text-slate-300 text-xs font-medium cursor-pointer"
+                >
+                  <LogOut className="w-3.5 h-3.5" />
+                  <span>Salir</span>
+                </button>
+              </div>
             </div>
           ) : !isAuthorized ? (
             <div className="rounded-xl bg-[#111420] border border-amber-500/35 p-4 space-y-3">
@@ -467,7 +584,7 @@ export const LandingView: React.FC<LandingViewProps> = ({
                   )}
                   <div className="min-w-0">
                     <p className="text-xs font-bold text-white truncate">
-                      {userName || 'Cuenta Google'}
+                      {userName || 'Usuario'}
                     </p>
                     <p className="text-[11px] text-slate-400 truncate">{userEmail}</p>
                   </div>
@@ -479,11 +596,23 @@ export const LandingView: React.FC<LandingViewProps> = ({
 
               <p className="text-xs text-slate-300 leading-relaxed">
                 {clientSuspended
-                  ? 'Tu acceso a ShowLive se encuentra suspendido temporalmente. Comunícate con el administrador para reactivarlo.'
-                  : 'Esta cuenta aún no está autorizada para entrar a ShowLive. Envía una solicitud para que el administrador active tu correo.'}
+                  ? 'Tu acceso a ShowLive se encuentra suspendido temporalmente. Escríbenos por WhatsApp para reactivarlo.'
+                  : 'Esta cuenta aún no está autorizada para entrar a ShowLive. Solicita acceso aquí o escríbenos por WhatsApp al 964 708 446.'}
               </p>
 
               <div className="flex flex-wrap items-center gap-2">
+                <a
+                  href={`https://wa.me/51964708446?text=${encodeURIComponent(
+                    `Hola, quiero activar mi acceso a ShowLive con el correo: ${userEmail}`
+                  )}`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="inline-flex items-center gap-1.5 px-4 py-2 rounded-lg bg-[#16A34A] hover:bg-[#22C55E] text-white text-xs font-bold"
+                >
+                  <MessageCircle className="w-3.5 h-3.5" />
+                  <span>WhatsApp 964 708 446</span>
+                </a>
+
                 {!clientSuspended && accessRequestStatus !== 'pending' && (
                   <button
                     type="button"
@@ -557,7 +686,7 @@ export const LandingView: React.FC<LandingViewProps> = ({
                   <ArrowRight className="w-5 h-5" />
                 </button>
 
-                {isAdmin && (
+                {isAdmin ? (
                   <button
                     type="button"
                     onClick={onOpenAdminDashboard}
@@ -566,10 +695,21 @@ export const LandingView: React.FC<LandingViewProps> = ({
                     <ShieldCheck className="w-5 h-5" />
                     <span>Mi Dashboard (Clientes)</span>
                   </button>
+                ) : (
+                  <a
+                    href={WHATSAPP_ACCESS_URL}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="inline-flex items-center gap-2 px-5 py-4 rounded-xl bg-[#102418] hover:bg-[#14301F] border border-emerald-500/40 text-emerald-300 font-display font-bold text-sm transition-all"
+                  >
+                    <MessageCircle className="w-5 h-5" />
+                    <span>Soporte WhatsApp</span>
+                  </a>
                 )}
               </div>
             </div>
           )}
+        </div>
         </div>
       </div>
     </div>

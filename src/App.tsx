@@ -1,5 +1,14 @@
 import React, { Suspense, lazy, useCallback, useEffect, useRef, useState } from 'react';
-import { User, onAuthStateChanged, signInWithPopup, signOut } from 'firebase/auth';
+import {
+  User,
+  createUserWithEmailAndPassword,
+  onIdTokenChanged,
+  sendEmailVerification,
+  sendPasswordResetEmail,
+  signInWithEmailAndPassword,
+  signInWithPopup,
+  signOut,
+} from 'firebase/auth';
 import { Disc, LayoutGrid, Library, Maximize, Settings } from 'lucide-react';
 import { audioEngine } from './audio/audioEngine';
 import {
@@ -26,6 +35,7 @@ const loadSamplerPanel = () => import('./components/SamplerPanel');
 const loadTopBar = () => import('./components/TopBar');
 const loadModals = () => import('./components/Modals');
 const loadAdminDashboard = () => import('./components/AdminDashboardView');
+const loadLoginView = () => import('./components/LoginView');
 
 const DeckPanel = lazy(() => loadDeckPanel().then((m) => ({ default: m.DeckPanel })));
 const MixerPanel = lazy(() => loadMixerPanel().then((m) => ({ default: m.MixerPanel })));
@@ -39,6 +49,7 @@ const StemSeparatorModal = lazy(() => loadModals().then((m) => ({ default: m.Ste
 const AdminDashboardView = lazy(() =>
   loadAdminDashboard().then((m) => ({ default: m.AdminDashboardView }))
 );
+const LoginView = lazy(() => loadLoginView().then((m) => ({ default: m.LoginView })));
 
 import {
   clearPersistedState,
@@ -138,6 +149,8 @@ export default function App() {
   const [authUser, setAuthUser] = useState<User | null>(null);
   const [authLoading, setAuthLoading] = useState(true);
   const [authError, setAuthError] = useState<string | null>(null);
+  const [authNotice, setAuthNotice] = useState<string | null>(null);
+  const [showLoginScreen, setShowLoginScreen] = useState(false);
   const [isAdmin, setIsAdmin] = useState(false);
   const [clientRecord, setClientRecord] = useState<AuthorizedClient | null>(null);
   const [clientChecked, setClientChecked] = useState(false);
@@ -152,7 +165,9 @@ export default function App() {
   const loggedEntryForUidRef = useRef<string | null>(null);
   const cloudSaveTimerRef = useRef<number | null>(null);
 
-  const isAuthorized = Boolean(authUser && (isAdmin || clientRecord?.active));
+  const isAuthorized = Boolean(
+    authUser && authUser.emailVerified && (isAdmin || clientRecord?.active)
+  );
 
   const showToast = useCallback((msg: string) => {
     setToastMsg(msg);
@@ -164,12 +179,22 @@ export default function App() {
     return () => clearTimeout(t);
   }, [toastMsg]);
 
-  // Listen to Firebase Auth state & verify admin / client allowlist
+  // Listen to Firebase Auth & ID token changes (handles email verification reloads cleanly)
   useEffect(() => {
     let unsubClient: (() => void) | null = null;
     let unsubRequest: (() => void) | null = null;
+    let lastIdentityKey = '';
 
-    const unsubAuth = onAuthStateChanged(auth, async (fbUser) => {
+    const unsubAuth = onIdTokenChanged(auth, async (fbUser) => {
+      const nextKey = fbUser
+        ? `${fbUser.uid}:${fbUser.emailVerified ? '1' : '0'}`
+        : 'signed-out';
+
+      if (nextKey === lastIdentityKey) {
+        return;
+      }
+      lastIdentityKey = nextKey;
+
       if (unsubClient) {
         unsubClient();
         unsubClient = null;
@@ -192,6 +217,17 @@ export default function App() {
         setShowAdminDashboard(false);
         hydratedUidRef.current = null;
         loggedEntryForUidRef.current = null;
+        return;
+      }
+
+      setShowLoginScreen(false);
+
+      if (!fbUser.emailVerified) {
+        setIsAdmin(false);
+        setClientRecord(null);
+        setAccessRequest(null);
+        setClientChecked(true);
+        setAuthLoading(false);
         return;
       }
 
@@ -361,19 +397,146 @@ export default function App() {
     };
   }, [authUser, isAuthorized, playlists, tracks, samplerBanks, activeBankId]);
 
+  const signingInRef = useRef(false);
+
   const handleSignInGoogle = async () => {
+    if (signingInRef.current) return;
+    signingInRef.current = true;
     setAuthError(null);
+    setAuthNotice(null);
     try {
       await signInWithPopup(auth, googleProvider);
+      setShowLoginScreen(false);
     } catch (err: any) {
-      const code = err?.code || '';
+      const code = String(err?.code || '');
       if (code === 'auth/popup-closed-by-user') {
         setAuthError('Cerraste la ventana de Google antes de completar el ingreso.');
+      } else if (code === 'auth/cancelled-popup-request') {
+        setAuthError('Ya hay una ventana de Google abierta. Completa el ingreso o inténtalo de nuevo.');
       } else if (code === 'auth/popup-blocked') {
         setAuthError('Tu navegador bloqueó la ventana emergente de Google. Permite popups e intenta de nuevo.');
+      } else if (code === 'auth/unauthorized-domain') {
+        setAuthError(
+          `El dominio "${window.location.hostname}" no está autorizado en Firebase. Agrégalo en Firebase Console → Authentication → Settings → Authorized domains.`
+        );
+      } else if (code === 'auth/operation-not-allowed') {
+        setAuthError('El inicio de sesión con Google no está habilitado en Firebase Authentication.');
+      } else if (code === 'auth/network-request-failed') {
+        setAuthError('Error de red al conectar con Google. Verifica tu conexión o desactiva bloqueadores.');
       } else {
-        setAuthError('No se pudo iniciar sesión con Google. Inténtalo de nuevo.');
+        setAuthError(
+          `No se pudo iniciar sesión con Google (${code || err?.message || 'error desconocido'}).`
+        );
       }
+    } finally {
+      signingInRef.current = false;
+    }
+  };
+
+  const handleEmailSignIn = async (email: string, password: string) => {
+    setAuthError(null);
+    setAuthNotice(null);
+    try {
+      await signInWithEmailAndPassword(auth, email, password);
+      setShowLoginScreen(false);
+    } catch (err: any) {
+      const code = String(err?.code || '');
+      if (
+        code === 'auth/invalid-credential' ||
+        code === 'auth/wrong-password' ||
+        code === 'auth/user-not-found'
+      ) {
+        setAuthError('Correo o contraseña incorrectos.');
+      } else if (code === 'auth/invalid-email') {
+        setAuthError('Ingresa un correo electrónico válido.');
+      } else if (code === 'auth/too-many-requests') {
+        setAuthError('Demasiados intentos seguidos. Espera unos minutos o restablece tu contraseña.');
+      } else if (code === 'auth/operation-not-allowed') {
+        setAuthError(
+          'El inicio con Email/Contraseña aún no está habilitado en Firebase Authentication (Sign-in method).'
+        );
+      } else if (code === 'auth/network-request-failed') {
+        setAuthError('Error de red al conectar. Verifica tu conexión.');
+      } else {
+        setAuthError(`No se pudo iniciar sesión (${code || err?.message || 'error'}).`);
+      }
+    }
+  };
+
+  const handleEmailRegister = async (email: string, password: string) => {
+    setAuthError(null);
+    setAuthNotice(null);
+    try {
+      const cred = await createUserWithEmailAndPassword(auth, email, password);
+      try {
+        await sendEmailVerification(cred.user);
+      } catch {
+        // User can resend from LandingView
+      }
+      setAuthNotice('Cuenta creada. Te enviamos un correo para confirmar tu cuenta.');
+      setShowLoginScreen(false);
+    } catch (err: any) {
+      const code = String(err?.code || '');
+      if (code === 'auth/email-already-in-use') {
+        setAuthError('Ese correo ya está registrado. Inicia sesión o usa "Olvidé mi contraseña".');
+      } else if (code === 'auth/weak-password') {
+        setAuthError('La contraseña debe tener al menos 6 caracteres.');
+      } else if (code === 'auth/invalid-email') {
+        setAuthError('Ingresa un correo electrónico válido.');
+      } else if (code === 'auth/operation-not-allowed') {
+        setAuthError(
+          'El registro con Email/Contraseña aún no está habilitado en Firebase Authentication (Sign-in method).'
+        );
+      } else {
+        setAuthError(`No se pudo crear la cuenta (${code || err?.message || 'error'}).`);
+      }
+    }
+  };
+
+  const handleResetPassword = async (email: string) => {
+    setAuthError(null);
+    setAuthNotice(null);
+    try {
+      await sendPasswordResetEmail(auth, email);
+      setAuthNotice(
+        'Te enviamos un enlace a tu correo para crear o restablecer tu contraseña. Revisa Spam si no lo ves.'
+      );
+    } catch (err: any) {
+      const code = String(err?.code || '');
+      if (code === 'auth/user-not-found') {
+        setAuthError('No existe una cuenta registrada con ese correo todavía. Regístrate primero o escríbenos por WhatsApp.');
+      } else if (code === 'auth/invalid-email') {
+        setAuthError('Ingresa un correo electrónico válido.');
+      } else if (code === 'auth/operation-not-allowed') {
+        setAuthError('Email/Contraseña no está habilitado en Firebase Authentication.');
+      } else {
+        setAuthError(`No se pudo enviar el correo (${code || err?.message || 'error'}).`);
+      }
+    }
+  };
+
+  const handleResendVerification = async () => {
+    if (!auth.currentUser) return;
+    try {
+      await sendEmailVerification(auth.currentUser);
+      showToast('Correo de verificación reenviado.');
+    } catch {
+      showToast('Espera un minuto antes de reenviar el correo.');
+    }
+  };
+
+  const handleRefreshVerification = async () => {
+    if (!auth.currentUser) return;
+    try {
+      await auth.currentUser.reload();
+      await auth.currentUser.getIdToken(true);
+      if (auth.currentUser.emailVerified) {
+        showToast('Correo verificado correctamente.');
+      } else {
+        showToast('Tu correo aún no aparece verificado. Revisa tu bandeja.');
+      }
+    } catch {
+      showToast('No se pudo verificar el estado de tu correo.');
     }
   };
 
@@ -383,6 +546,9 @@ export default function App() {
     audioEngine.stopAllPads();
     setInStudio(false);
     setShowAdminDashboard(false);
+    setShowLoginScreen(false);
+    setAuthError(null);
+    setAuthNotice(null);
     hydratedUidRef.current = null;
     loggedEntryForUidRef.current = null;
     await signOut(auth);
@@ -432,8 +598,15 @@ export default function App() {
 
   const handleOpenStudio = (initialTab: LibraryTab = 'local') => {
     if (!isAuthorized) {
-      if (!authUser) handleSignInGoogle();
-      else showToast('Tu correo aún no tiene acceso autorizado.');
+      if (!authUser) {
+        setAuthError(null);
+        setAuthNotice(null);
+        setShowLoginScreen(true);
+      } else if (!authUser.emailVerified) {
+        showToast('Confirma tu correo electrónico primero.');
+      } else {
+        showToast('Tu correo aún no tiene acceso autorizado.');
+      }
       return;
     }
     audioEngine.resume();
@@ -1124,6 +1297,33 @@ export default function App() {
     );
   }
 
+  if (showLoginScreen && !authUser) {
+    return (
+      <Suspense
+        fallback={
+          <div className="min-h-screen w-full bg-[#060913] text-slate-300 flex items-center justify-center text-sm font-medium">
+            Cargando inicio de sesión...
+          </div>
+        }
+      >
+        <LoginView
+          onBack={() => {
+            setAuthError(null);
+            setAuthNotice(null);
+            setShowLoginScreen(false);
+          }}
+          onGoogleSignIn={handleSignInGoogle}
+          onEmailSignIn={handleEmailSignIn}
+          onEmailRegister={handleEmailRegister}
+          onResetPassword={handleResetPassword}
+          authError={authError}
+          authNotice={authNotice}
+          loading={authLoading}
+        />
+      </Suspense>
+    );
+  }
+
   if (!inStudio || !isAuthorized) {
     return (
       <LandingView
@@ -1132,13 +1332,20 @@ export default function App() {
         userEmail={authUser?.email || null}
         userName={authUser?.displayName || null}
         userPhoto={authUser?.photoURL || null}
+        emailVerified={Boolean(authUser?.emailVerified)}
         isAuthorized={isAuthorized}
         isAdmin={isAdmin}
         clientSuspended={Boolean(clientRecord && !clientRecord.active)}
         accessRequestStatus={accessRequest?.status || null}
-        onSignInGoogle={handleSignInGoogle}
+        onOpenLogin={() => {
+          setAuthError(null);
+          setAuthNotice(null);
+          setShowLoginScreen(true);
+        }}
         onSignOut={handleSignOut}
         onRequestAccess={handleRequestAccess}
+        onResendVerification={handleResendVerification}
+        onRefreshVerification={handleRefreshVerification}
         onOpenAdminDashboard={() => setShowAdminDashboard(true)}
         authError={authError}
       />
