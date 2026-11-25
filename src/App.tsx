@@ -1,4 +1,5 @@
 import React, { Suspense, lazy, useCallback, useEffect, useRef, useState } from 'react';
+import { User, onAuthStateChanged, signInWithPopup, signOut } from 'firebase/auth';
 import { Disc, LayoutGrid, Library, Maximize, Settings } from 'lucide-react';
 import { audioEngine } from './audio/audioEngine';
 import {
@@ -7,6 +8,16 @@ import {
   INITIAL_TRACKS,
 } from './audio/demoTracks';
 import { LandingView } from './components/LandingView';
+import { auth, googleProvider } from './firebase';
+import {
+  checkUserIsAdmin,
+  loadUserWorkspace,
+  recordAuthorizedClientEntry,
+  saveUserWorkspace,
+  submitAccessRequest,
+  subscribeClientAccess,
+  subscribeMyAccessRequest,
+} from './services/firebaseService';
 
 const loadDeckPanel = () => import('./components/DeckPanel');
 const loadMixerPanel = () => import('./components/MixerPanel');
@@ -14,6 +25,7 @@ const loadLibraryPanel = () => import('./components/LibraryPanel');
 const loadSamplerPanel = () => import('./components/SamplerPanel');
 const loadTopBar = () => import('./components/TopBar');
 const loadModals = () => import('./components/Modals');
+const loadAdminDashboard = () => import('./components/AdminDashboardView');
 
 const DeckPanel = lazy(() => loadDeckPanel().then((m) => ({ default: m.DeckPanel })));
 const MixerPanel = lazy(() => loadMixerPanel().then((m) => ({ default: m.MixerPanel })));
@@ -24,16 +36,23 @@ const AiLyricsModal = lazy(() => loadModals().then((m) => ({ default: m.AiLyrics
 const AiModelModal = lazy(() => loadModals().then((m) => ({ default: m.AiModelModal })));
 const PadEditorModal = lazy(() => loadModals().then((m) => ({ default: m.PadEditorModal })));
 const StemSeparatorModal = lazy(() => loadModals().then((m) => ({ default: m.StemSeparatorModal })));
+const AdminDashboardView = lazy(() =>
+  loadAdminDashboard().then((m) => ({ default: m.AdminDashboardView }))
+);
+
 import {
   clearPersistedState,
   deleteMediaBlob,
   getMediaBlob,
   loadPersistedState,
+  rehydrateSamplerBanks,
   saveMediaBlob,
   saveMediaBlobsBatch,
   savePersistedState,
 } from './utils/localMediaStore';
 import {
+  AccessRequest,
+  AuthorizedClient,
   ChannelEqState,
   DeckId,
   DeckSource,
@@ -115,11 +134,25 @@ export default function App() {
   const [editingPad, setEditingPad] = useState<SamplerPad | null>(null);
   const [toastMsg, setToastMsg] = useState<string | null>(null);
 
+  // Firebase Auth & RBAC State
+  const [authUser, setAuthUser] = useState<User | null>(null);
+  const [authLoading, setAuthLoading] = useState(true);
+  const [authError, setAuthError] = useState<string | null>(null);
+  const [isAdmin, setIsAdmin] = useState(false);
+  const [clientRecord, setClientRecord] = useState<AuthorizedClient | null>(null);
+  const [clientChecked, setClientChecked] = useState(false);
+  const [accessRequest, setAccessRequest] = useState<AccessRequest | null>(null);
+  const [showAdminDashboard, setShowAdminDashboard] = useState(false);
+
   const libraryRef = useRef<HTMLDivElement | null>(null);
   const autoMixTimerRef = useRef<number | null>(null);
   const autoTransitionDeckRef = useRef<DeckId | null>(null);
   const deckConsumedRef = useRef<Record<DeckId, boolean>>({ A: false, B: false });
-  const hydratedRef = useRef(false);
+  const hydratedUidRef = useRef<string | null>(null);
+  const loggedEntryForUidRef = useRef<string | null>(null);
+  const cloudSaveTimerRef = useRef<number | null>(null);
+
+  const isAuthorized = Boolean(authUser && (isAdmin || clientRecord?.active));
 
   const showToast = useCallback((msg: string) => {
     setToastMsg(msg);
@@ -131,36 +164,239 @@ export default function App() {
     return () => clearTimeout(t);
   }, [toastMsg]);
 
-  // Rehydrate saved local tracks, playlists & sampler pads from IndexedDB
+  // Listen to Firebase Auth state & verify admin / client allowlist
   useEffect(() => {
-    let active = true;
-    loadPersistedState().then((saved) => {
-      if (!active) return;
-      if (saved) {
-        setPlaylists(saved.playlists);
-        setTracks(saved.tracks);
-        if (saved.samplerBanks.length > 0) {
-          setSamplerBanks(saved.samplerBanks);
-          setActiveBankId(saved.activeBankId || saved.samplerBanks[0].id);
-        }
+    let unsubClient: (() => void) | null = null;
+    let unsubRequest: (() => void) | null = null;
+
+    const unsubAuth = onAuthStateChanged(auth, async (fbUser) => {
+      if (unsubClient) {
+        unsubClient();
+        unsubClient = null;
       }
-      hydratedRef.current = true;
+      if (unsubRequest) {
+        unsubRequest();
+        unsubRequest = null;
+      }
+
+      setAuthUser(fbUser);
+      setAuthError(null);
+
+      if (!fbUser || !fbUser.email) {
+        setIsAdmin(false);
+        setClientRecord(null);
+        setAccessRequest(null);
+        setClientChecked(true);
+        setAuthLoading(false);
+        setInStudio(false);
+        setShowAdminDashboard(false);
+        hydratedUidRef.current = null;
+        loggedEntryForUidRef.current = null;
+        return;
+      }
+
+      setAuthLoading(true);
+      setClientChecked(false);
+
+      let adminFlag = false;
+      try {
+        adminFlag = await checkUserIsAdmin(fbUser);
+      } catch {
+        adminFlag = false;
+      }
+      setIsAdmin(adminFlag);
+
+      if (adminFlag) {
+        setClientRecord(null);
+        setClientChecked(true);
+        setAuthLoading(false);
+        const wantsAdminUrl =
+          window.location.hash === '#admin' ||
+          new URLSearchParams(window.location.search).get('admin') === '1';
+        if (wantsAdminUrl) {
+          setShowAdminDashboard(true);
+        }
+        return;
+      }
+
+      unsubClient = subscribeClientAccess(
+        fbUser.email,
+        (clientDoc) => {
+          setClientRecord(clientDoc);
+          setClientChecked(true);
+          setAuthLoading(false);
+        },
+        () => {
+          setClientRecord(null);
+          setClientChecked(true);
+          setAuthLoading(false);
+        }
+      );
+
+      unsubRequest = subscribeMyAccessRequest(fbUser.uid, setAccessRequest);
     });
+
     return () => {
-      active = false;
+      unsubAuth();
+      if (unsubClient) unsubClient();
+      if (unsubRequest) unsubRequest();
     };
   }, []);
 
-  // Persist local state whenever library or sampler changes
+  // Kick out of Studio immediately if client access is revoked live
   useEffect(() => {
-    if (!hydratedRef.current) return;
-    savePersistedState({
-      playlists,
-      tracks,
-      samplerBanks,
-      activeBankId,
-    });
-  }, [playlists, tracks, samplerBanks, activeBankId]);
+    if (clientChecked && !authLoading && authUser && !isAuthorized && inStudio) {
+      setDeckA((p) => ({ ...p, isPlaying: false }));
+      setDeckB((p) => ({ ...p, isPlaying: false }));
+      audioEngine.stopAllPads();
+      setInStudio(false);
+      showToast('Tu acceso fue suspendido por el administrador.');
+    }
+  }, [authLoading, authUser, clientChecked, inStudio, isAuthorized, showToast]);
+
+  // Record client studio entry count & audit log once per session
+  useEffect(() => {
+    if (
+      authUser &&
+      !isAdmin &&
+      clientRecord?.active &&
+      loggedEntryForUidRef.current !== authUser.uid
+    ) {
+      loggedEntryForUidRef.current = authUser.uid;
+      recordAuthorizedClientEntry(authUser, clientRecord).catch(() => {
+        // Handled cleanly via handleFirestoreError
+      });
+    }
+  }, [authUser, clientRecord, isAdmin]);
+
+  // Rehydrate user's cloud workspace (playlists & samplers) + local IndexedDB blobs
+  useEffect(() => {
+    if (!authUser || !isAuthorized) return;
+    if (hydratedUidRef.current === authUser.uid) return;
+    let active = true;
+
+    (async () => {
+      const [localData, cloudData] = await Promise.all([
+        loadPersistedState(authUser.uid),
+        loadUserWorkspace(authUser.uid).catch(() => null),
+      ]);
+      if (!active) return;
+
+      if (cloudData) {
+        const cloudTracks = cloudData.tracksMeta || [];
+        const localTracks = localData?.tracks || [];
+        const cloudMap = new Map(cloudTracks.map((t) => [t.id, t]));
+        const mergedTracks: TrackItem[] = [
+          ...cloudTracks,
+          ...localTracks.filter((lt) => !cloudMap.has(lt.id)),
+        ];
+        const nextBanks =
+          cloudData.samplerBanks.length > 0
+            ? await rehydrateSamplerBanks(cloudData.samplerBanks)
+            : localData?.samplerBanks?.length
+              ? localData.samplerBanks
+              : INITIAL_SAMPLER_BANKS;
+
+        setPlaylists(cloudData.playlists || []);
+        setTracks(mergedTracks);
+        setSamplerBanks(nextBanks);
+        setActiveBankId(
+          cloudData.activeBankId || nextBanks[0]?.id || INITIAL_SAMPLER_BANKS[0].id
+        );
+      } else if (localData) {
+        setPlaylists(localData.playlists);
+        setTracks(localData.tracks);
+        if (localData.samplerBanks.length > 0) {
+          setSamplerBanks(localData.samplerBanks);
+          setActiveBankId(localData.activeBankId || localData.samplerBanks[0].id);
+        }
+      } else {
+        setPlaylists(INITIAL_PLAYLISTS);
+        setTracks(INITIAL_TRACKS);
+        setSamplerBanks(INITIAL_SAMPLER_BANKS);
+        setActiveBankId(INITIAL_SAMPLER_BANKS[0].id);
+      }
+
+      hydratedUidRef.current = authUser.uid;
+    })();
+
+    return () => {
+      active = false;
+    };
+  }, [authUser, isAuthorized]);
+
+  // Persist locally & debounced sync to Firestore whenever playlists, tracks, or sampler changes
+  useEffect(() => {
+    if (!authUser || !isAuthorized) return;
+    if (hydratedUidRef.current !== authUser.uid) return;
+
+    savePersistedState(
+      {
+        playlists,
+        tracks,
+        samplerBanks,
+        activeBankId,
+      },
+      authUser.uid
+    );
+
+    if (cloudSaveTimerRef.current) {
+      window.clearTimeout(cloudSaveTimerRef.current);
+    }
+    cloudSaveTimerRef.current = window.setTimeout(() => {
+      saveUserWorkspace(authUser, {
+        playlists,
+        tracksMeta: tracks,
+        samplerBanks,
+        activeBankId,
+      }).catch(() => {
+        // Logged in firebaseService
+      });
+    }, 1200);
+
+    return () => {
+      if (cloudSaveTimerRef.current) {
+        window.clearTimeout(cloudSaveTimerRef.current);
+      }
+    };
+  }, [authUser, isAuthorized, playlists, tracks, samplerBanks, activeBankId]);
+
+  const handleSignInGoogle = async () => {
+    setAuthError(null);
+    try {
+      await signInWithPopup(auth, googleProvider);
+    } catch (err: any) {
+      const code = err?.code || '';
+      if (code === 'auth/popup-closed-by-user') {
+        setAuthError('Cerraste la ventana de Google antes de completar el ingreso.');
+      } else if (code === 'auth/popup-blocked') {
+        setAuthError('Tu navegador bloqueó la ventana emergente de Google. Permite popups e intenta de nuevo.');
+      } else {
+        setAuthError('No se pudo iniciar sesión con Google. Inténtalo de nuevo.');
+      }
+    }
+  };
+
+  const handleSignOut = async () => {
+    setDeckA((p) => ({ ...p, isPlaying: false }));
+    setDeckB((p) => ({ ...p, isPlaying: false }));
+    audioEngine.stopAllPads();
+    setInStudio(false);
+    setShowAdminDashboard(false);
+    hydratedUidRef.current = null;
+    loggedEntryForUidRef.current = null;
+    await signOut(auth);
+  };
+
+  const handleRequestAccess = async () => {
+    if (!authUser) return;
+    try {
+      await submitAccessRequest(authUser);
+      showToast('Solicitud enviada al administrador');
+    } catch {
+      showToast('No se pudo enviar la solicitud');
+    }
+  };
 
   // Sync Mixer EQ & Crossfader to Web Audio Engine
   useEffect(() => {
@@ -195,7 +431,13 @@ export default function App() {
   }, [inStudio]);
 
   const handleOpenStudio = (initialTab: LibraryTab = 'local') => {
+    if (!isAuthorized) {
+      if (!authUser) handleSignInGoogle();
+      else showToast('Tu correo aún no tiene acceso autorizado.');
+      return;
+    }
     audioEngine.resume();
+    setShowAdminDashboard(false);
     setLibraryTab(initialTab);
     setInStudio(true);
     if (initialTab === 'youtube' && ytResults.length === 0) {
@@ -860,8 +1102,47 @@ export default function App() {
     showToast(`Sample cargado en Pad ${padId}: ${label}`);
   };
 
-  if (!inStudio) {
-    return <LandingView onOpenStudio={handleOpenStudio} />;
+  if (showAdminDashboard && isAdmin && authUser) {
+    return (
+      <Suspense
+        fallback={
+          <div className="h-screen w-screen bg-[#080A0F] text-slate-300 flex items-center justify-center text-sm font-medium">
+            Cargando panel personal...
+          </div>
+        }
+      >
+        <AdminDashboardView
+          adminUid={authUser.uid}
+          adminEmail={authUser.email || ''}
+          onOpenStudio={() => {
+            setShowAdminDashboard(false);
+            handleOpenStudio('local');
+          }}
+          onSignOut={handleSignOut}
+        />
+      </Suspense>
+    );
+  }
+
+  if (!inStudio || !isAuthorized) {
+    return (
+      <LandingView
+        onOpenStudio={handleOpenStudio}
+        authLoading={authLoading}
+        userEmail={authUser?.email || null}
+        userName={authUser?.displayName || null}
+        userPhoto={authUser?.photoURL || null}
+        isAuthorized={isAuthorized}
+        isAdmin={isAdmin}
+        clientSuspended={Boolean(clientRecord && !clientRecord.active)}
+        accessRequestStatus={accessRequest?.status || null}
+        onSignInGoogle={handleSignInGoogle}
+        onSignOut={handleSignOut}
+        onRequestAccess={handleRequestAccess}
+        onOpenAdminDashboard={() => setShowAdminDashboard(true)}
+        authError={authError}
+      />
+    );
   }
 
   // Compute effective channel gain for YouTube volume sync
@@ -884,14 +1165,37 @@ export default function App() {
         workspaceMode={workspaceMode}
         onChangeMode={setWorkspaceMode}
         onOpenAiConfig={() => setShowAiConfigModal(true)}
-        onLogout={() => {
+        onLogout={handleSignOut}
+        aiConfig={aiConfig}
+        isAdmin={isAdmin}
+        onOpenAdminDashboard={() => {
           setDeckA((p) => ({ ...p, isPlaying: false }));
           setDeckB((p) => ({ ...p, isPlaying: false }));
-          audioEngine.stopAllPads();
-          setInStudio(false);
+          setShowAdminDashboard(true);
         }}
-        aiConfig={aiConfig}
+        userPhoto={authUser?.photoURL || null}
+        userEmail={authUser?.email || null}
       />
+
+      {/* Mobile Admin Quick Bar (< lg, Admin only) */}
+      {isAdmin && (
+        <div className="lg:hidden flex items-center justify-between px-3 py-1.5 bg-[#0B1218] border-b border-emerald-500/25 shrink-0">
+          <span className="text-[11px] font-semibold text-emerald-300 truncate">
+            Admin · Panel Personal
+          </span>
+          <button
+            type="button"
+            onClick={() => {
+              setDeckA((p) => ({ ...p, isPlaying: false }));
+              setDeckB((p) => ({ ...p, isPlaying: false }));
+              setShowAdminDashboard(true);
+            }}
+            className="px-2.5 py-1 rounded bg-emerald-500/20 border border-emerald-500/40 text-[11px] font-bold text-emerald-200 cursor-pointer shrink-0"
+          >
+            Mi Dashboard
+          </button>
+        </div>
+      )}
 
       {/* Main Studio Body */}
       <main className="flex-1 min-h-0 p-1.5 sm:p-2.5 flex flex-col gap-1.5 lg:gap-2.5 overflow-hidden">
@@ -1084,7 +1388,7 @@ export default function App() {
                       if (t.audioUrl?.startsWith('blob:')) URL.revokeObjectURL(t.audioUrl);
                       if (t.videoUrl?.startsWith('blob:')) URL.revokeObjectURL(t.videoUrl);
                     });
-                    await clearPersistedState();
+                    await clearPersistedState(authUser?.uid);
                     setTracks([]);
                     setPlaylists([]);
                     setSelectedPlaylistId(null);
@@ -1244,11 +1548,12 @@ export default function App() {
           config={aiConfig}
           onChange={setAiConfig}
           onClose={() => setShowAiConfigModal(false)}
-          onLogout={() => {
+          onLogout={handleSignOut}
+          isAdmin={isAdmin}
+          onOpenAdminDashboard={() => {
             setDeckA((p) => ({ ...p, isPlaying: false }));
             setDeckB((p) => ({ ...p, isPlaying: false }));
-            audioEngine.stopAllPads();
-            setInStudio(false);
+            setShowAdminDashboard(true);
           }}
         />
       )}

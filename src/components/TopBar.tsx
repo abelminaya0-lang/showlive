@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { LogOut, Maximize2, Mic, Minimize2, Settings, User } from 'lucide-react';
+import { LogOut, Maximize2, Mic, Minimize2, Settings, User, Users } from 'lucide-react';
 import { IAModelConfig, WorkspaceMode } from '../types/showlive';
 
 interface TopBarProps {
@@ -8,6 +8,10 @@ interface TopBarProps {
   onOpenAiConfig: () => void;
   onLogout: () => void;
   aiConfig: IAModelConfig;
+  isAdmin?: boolean;
+  onOpenAdminDashboard?: () => void;
+  userPhoto?: string | null;
+  userEmail?: string | null;
 }
 
 export const TopBar: React.FC<TopBarProps> = ({
@@ -16,6 +20,10 @@ export const TopBar: React.FC<TopBarProps> = ({
   onOpenAiConfig,
   onLogout,
   aiConfig,
+  isAdmin,
+  onOpenAdminDashboard,
+  userPhoto,
+  userEmail,
 }) => {
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [fps, setFps] = useState(60);
@@ -134,6 +142,19 @@ export const TopBar: React.FC<TopBarProps> = ({
           </span>
         </div>
 
+        {/* Personal Admin Dashboard shortcut (Admin only) */}
+        {isAdmin && onOpenAdminDashboard && (
+          <button
+            type="button"
+            onClick={onOpenAdminDashboard}
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-md bg-emerald-500/15 hover:bg-emerald-500/25 border border-emerald-500/40 text-xs font-bold text-emerald-300 transition-colors cursor-pointer whitespace-nowrap shrink-0"
+            title="Panel personal de clientes y ganancias"
+          >
+            <Users className="w-3.5 h-3.5" />
+            <span>Mi Dashboard</span>
+          </button>
+        )}
+
         {/* IA Model button */}
         <button
           type="button"
@@ -150,12 +171,21 @@ export const TopBar: React.FC<TopBarProps> = ({
           type="button"
           onClick={onLogout}
           className="flex items-center gap-2 px-2.5 py-1 rounded-md bg-[#131620] hover:bg-[#1B202E] border border-white/10 text-xs font-medium text-slate-200 transition-colors cursor-pointer whitespace-nowrap shrink-0"
-          title="Volver a pantalla de inicio"
+          title={userEmail ? `Sesión: ${userEmail} (Salir)` : 'Cerrar sesión'}
         >
-          <span className="w-5 h-5 rounded-full bg-gradient-to-br from-cyan-500 to-blue-600 flex items-center justify-center">
-            <User className="w-3 h-3 text-white" />
-          </span>
-          <span className="hidden sm:inline">Logout</span>
+          {userPhoto ? (
+            <img
+              src={userPhoto}
+              alt={userEmail || 'Usuario'}
+              referrerPolicy="no-referrer"
+              className="w-5 h-5 rounded-full object-cover"
+            />
+          ) : (
+            <span className="w-5 h-5 rounded-full bg-gradient-to-br from-cyan-500 to-blue-600 flex items-center justify-center">
+              <User className="w-3 h-3 text-white" />
+            </span>
+          )}
+          <span className="hidden sm:inline">Salir</span>
           <LogOut className="w-3 h-3 text-slate-400 sm:hidden" />
         </button>
       </div>

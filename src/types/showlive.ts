@@ -114,3 +114,42 @@ export interface IAModelConfig {
   language: 'es' | 'en';
   autoSyncLyrics: boolean;
 }
+
+export type CurrencyCode = 'PEN' | 'USD';
+
+export interface AuthorizedClient {
+  email: string;
+  clientName: string;
+  active: boolean;
+  planName: string;
+  amountPaid: number;
+  currency: CurrencyCode;
+  notes: string;
+  uid: string;
+  displayName: string;
+  photoURL: string;
+  loginCount: number;
+  lastLoginAt?: number | null;
+  createdAt?: number | null;
+  updatedAt?: number | null;
+  createdBy: string;
+}
+
+export interface AccessRequest {
+  uid: string;
+  email: string;
+  displayName: string;
+  photoURL: string;
+  status: 'pending' | 'approved' | 'rejected';
+  requestedAt?: number | null;
+  updatedAt?: number | null;
+}
+
+export interface AccessLog {
+  id: string;
+  uid: string;
+  email: string;
+  displayName: string;
+  enteredAt?: number | null;
+}
+

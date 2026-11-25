@@ -416,6 +416,8 @@ interface AiModelModalProps {
   onChange: (next: IAModelConfig) => void;
   onClose: () => void;
   onLogout?: () => void;
+  isAdmin?: boolean;
+  onOpenAdminDashboard?: () => void;
 }
 
 export const AiModelModal: React.FC<AiModelModalProps> = ({
@@ -423,6 +425,8 @@ export const AiModelModal: React.FC<AiModelModalProps> = ({
   onChange,
   onClose,
   onLogout,
+  isAdmin,
+  onOpenAdminDashboard,
 }) => {
   return (
     <div className="fixed inset-0 z-50 bg-black/75 backdrop-blur-sm flex items-center justify-center p-4">
@@ -503,6 +507,19 @@ export const AiModelModal: React.FC<AiModelModalProps> = ({
             />
           </label>
 
+          {isAdmin && onOpenAdminDashboard && (
+            <button
+              type="button"
+              onClick={() => {
+                onClose();
+                onOpenAdminDashboard();
+              }}
+              className="w-full py-2.5 rounded-lg bg-emerald-500/15 hover:bg-emerald-500/25 border border-emerald-500/40 text-xs font-bold text-emerald-300 cursor-pointer"
+            >
+              Abrir Panel Personal (Clientes y Ganancias)
+            </button>
+          )}
+
           <div className="flex items-center justify-between gap-2 pt-2">
             {onLogout ? (
               <button
@@ -513,7 +530,7 @@ export const AiModelModal: React.FC<AiModelModalProps> = ({
                 }}
                 className="px-3.5 py-2 rounded-lg bg-[#161B26] hover:bg-red-600/20 border border-white/10 hover:border-red-500/40 text-xs font-semibold text-slate-300 hover:text-red-300 cursor-pointer"
               >
-                Salir al Inicio
+                Cerrar sesión
               </button>
             ) : (
               <span />

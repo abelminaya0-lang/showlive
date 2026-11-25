@@ -1,0 +1,117 @@
+{
+  "entities": {
+    "AdminUser": {
+      "title": "AdminUser",
+      "description": "Trusted administrator account record.",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string", "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "email": { "type": "string", "format": "email", "maxLength": 128 },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["uid", "email", "createdAt"]
+    },
+    "AuthorizedClient": {
+      "title": "AuthorizedClient",
+      "description": "Authorized client account managed by the owner, including subscription amount and entry metrics.",
+      "type": "object",
+      "properties": {
+        "email": { "type": "string", "format": "email", "maxLength": 128 },
+        "clientName": { "type": "string", "maxLength": 80 },
+        "active": { "type": "boolean" },
+        "planName": { "type": "string", "maxLength": 50 },
+        "amountPaid": { "type": "number" },
+        "currency": { "type": "string", "enum": ["PEN", "USD"] },
+        "notes": { "type": "string", "maxLength": 300 },
+        "uid": { "type": "string", "maxLength": 128 },
+        "displayName": { "type": "string", "maxLength": 100 },
+        "photoURL": { "type": "string", "maxLength": 400 },
+        "loginCount": { "type": "number" },
+        "lastLoginAt": { "type": "string", "format": "date-time" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" },
+        "createdBy": { "type": "string", "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" }
+      },
+      "required": [
+        "email",
+        "clientName",
+        "active",
+        "planName",
+        "amountPaid",
+        "currency",
+        "notes",
+        "uid",
+        "displayName",
+        "photoURL",
+        "loginCount",
+        "createdAt",
+        "updatedAt",
+        "createdBy"
+      ]
+    },
+    "AccessRequest": {
+      "title": "AccessRequest",
+      "description": "Access request submitted by a signed-in Google user waiting for owner approval.",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string", "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "email": { "type": "string", "format": "email", "maxLength": 128 },
+        "displayName": { "type": "string", "maxLength": 100 },
+        "photoURL": { "type": "string", "maxLength": 400 },
+        "status": { "type": "string", "enum": ["pending", "approved", "rejected"] },
+        "requestedAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["uid", "email", "displayName", "photoURL", "status", "requestedAt", "updatedAt"]
+    },
+    "AccessLog": {
+      "title": "AccessLog",
+      "description": "Immutable login audit entry when an authorized client enters the studio.",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string", "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "email": { "type": "string", "format": "email", "maxLength": 128 },
+        "displayName": { "type": "string", "maxLength": 100 },
+        "enteredAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["uid", "email", "displayName", "enteredAt"]
+    },
+    "UserWorkspace": {
+      "title": "UserWorkspace",
+      "description": "Per-user cloud-synced playlists, track metadata, and sampler banks.",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string", "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "email": { "type": "string", "format": "email", "maxLength": 128 },
+        "playlists": { "type": "array" },
+        "tracksMeta": { "type": "array" },
+        "samplerBanks": { "type": "array" },
+        "activeBankId": { "type": "string", "maxLength": 64 },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["uid", "email", "playlists", "tracksMeta", "samplerBanks", "activeBankId", "updatedAt"]
+    }
+  },
+  "firestore": {
+    "/admins/{uid}": {
+      "schema": { "$ref": "#/entities/AdminUser" },
+      "description": "Owner/admin privilege documents."
+    },
+    "/clients/{clientEmail}": {
+      "schema": { "$ref": "#/entities/AuthorizedClient" },
+      "description": "Authorized client allowlist keyed by lowercase email, including payment amount and login count."
+    },
+    "/accessRequests/{uid}": {
+      "schema": { "$ref": "#/entities/AccessRequest" },
+      "description": "Pending access requests from Google-authenticated users."
+    },
+    "/accessLogs/{logId}": {
+      "schema": { "$ref": "#/entities/AccessLog" },
+      "description": "Audit log of studio entries for owner analytics."
+    },
+    "/userWorkspaces/{uid}": {
+      "schema": { "$ref": "#/entities/UserWorkspace" },
+      "description": "Private cloud backup of each user's playlists and sampler banks."
+    }
+  }
+}
