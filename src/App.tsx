@@ -20,6 +20,7 @@ import { LandingView } from './components/LandingView';
 import { auth, googleProvider } from './firebase';
 import {
   checkUserIsAdmin,
+  ensureAdminClientRecord,
   loadUserWorkspace,
   recordAuthorizedClientEntry,
   saveUserWorkspace,
@@ -246,6 +247,9 @@ export default function App() {
         setClientRecord(null);
         setClientChecked(true);
         setAuthLoading(false);
+        ensureAdminClientRecord(fbUser).catch(() => {
+          // Non-blocking sync
+        });
         const wantsAdminUrl =
           window.location.hash === '#admin' ||
           new URLSearchParams(window.location.search).get('admin') === '1';
@@ -417,7 +421,7 @@ export default function App() {
         setAuthError('Tu navegador bloqueó la ventana emergente de Google. Permite popups e intenta de nuevo.');
       } else if (code === 'auth/unauthorized-domain') {
         setAuthError(
-          `El dominio "${window.location.hostname}" no está autorizado en Firebase. Agrégalo en Firebase Console → Authentication → Settings → Authorized domains.`
+          `El dominio "${window.location.hostname}" no está autorizado en Firebase. Agrégalo en Firebase Console (proyecto tactile-cosine-j2t1j) → Authentication → Settings → Authorized domains.`
         );
       } else if (code === 'auth/operation-not-allowed') {
         setAuthError('El inicio de sesión con Google no está habilitado en Firebase Authentication.');

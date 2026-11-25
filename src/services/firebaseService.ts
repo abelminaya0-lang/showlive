@@ -189,6 +189,38 @@ export async function recordAuthorizedClientEntry(
   }
 }
 
+export async function ensureAdminClientRecord(user: User): Promise<void> {
+  const cleanEmail = normalizeEmail(user.email);
+  if (!cleanEmail || !user.emailVerified) return;
+
+  const path = `clients/${cleanEmail}`;
+  const ref = doc(db, 'clients', cleanEmail);
+  try {
+    const snap = await getDoc(ref);
+    if (!snap.exists()) {
+      await setDoc(ref, {
+        email: cleanEmail,
+        clientName: (user.displayName || 'Administrador ShowLive').slice(0, 80),
+        active: true,
+        planName: 'Vitalicio',
+        amountPaid: 0,
+        currency: 'PEN',
+        notes: 'Acceso principal activado automáticamente',
+        uid: user.uid,
+        displayName: (user.displayName || cleanEmail).slice(0, 100),
+        photoURL: (user.photoURL || '').slice(0, 400),
+        loginCount: 1,
+        lastLoginAt: serverTimestamp(),
+        createdAt: serverTimestamp(),
+        updatedAt: serverTimestamp(),
+        createdBy: user.uid,
+      });
+    }
+  } catch (error) {
+    handleFirestoreError(error, OperationType.WRITE, path);
+  }
+}
+
 // --- Admin Subscriptions & Mutations ---
 export function subscribeAllClients(
   onData: (clients: AuthorizedClient[]) => void
