@@ -69,6 +69,10 @@ export const DeckPanel: React.FC<DeckPanelProps> = ({
   const mediaRef = useRef<HTMLVideoElement | null>(null);
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const ytIframeRef = useRef<HTMLIFrameElement | null>(null);
+  const isPlayingRef = useRef(deck.isPlaying);
+  const channelVolumeRef = useRef(channelVolume);
+  isPlayingRef.current = deck.isPlaying;
+  channelVolumeRef.current = channelVolume;
   const [resolvedUrl, setResolvedUrl] = useState<string | null>(null);
   const [showKeyPicker, setShowKeyPicker] = useState(false);
 
@@ -594,7 +598,7 @@ export const DeckPanel: React.FC<DeckPanelProps> = ({
                   key={deck.youtubeId}
                   ref={ytIframeRef}
                   className="w-full h-full border-0"
-                  src={`https://www.youtube.com/embed/${deck.youtubeId}?enablejsapi=1&autoplay=1&playsinline=1&rel=0&modestbranding=1&origin=${encodeURIComponent(
+                  src={`https://www.youtube.com/embed/${deck.youtubeId}?enablejsapi=1&autoplay=0&playsinline=1&rel=0&modestbranding=1&origin=${encodeURIComponent(
                     typeof window !== 'undefined' ? window.location.origin : ''
                   )}`}
                   title={`Deck ${deck.id} YouTube Karaoke`}
@@ -604,7 +608,9 @@ export const DeckPanel: React.FC<DeckPanelProps> = ({
                   onLoad={() => {
                     const win = ytIframeRef.current?.contentWindow;
                     if (!win) return;
-                    const volPct = Math.round(Math.max(0, Math.min(1, channelVolume)) * 100);
+                    const volPct = Math.round(
+                      Math.max(0, Math.min(1, channelVolumeRef.current)) * 100
+                    );
                     win.postMessage(
                       JSON.stringify({ event: 'command', func: 'setVolume', args: [volPct] }),
                       '*'
@@ -612,7 +618,7 @@ export const DeckPanel: React.FC<DeckPanelProps> = ({
                     win.postMessage(
                       JSON.stringify({
                         event: 'command',
-                        func: deck.isPlaying ? 'playVideo' : 'pauseVideo',
+                        func: isPlayingRef.current ? 'playVideo' : 'pauseVideo',
                         args: [],
                       }),
                       '*'
