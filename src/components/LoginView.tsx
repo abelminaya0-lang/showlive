@@ -150,6 +150,17 @@ export const LoginView: React.FC<LoginViewProps> = ({
                   <ExternalLink className="w-3.5 h-3.5" />
                 </a>
               )}
+              {authError.includes('Sign-in method') && (
+                <a
+                  href="https://console.firebase.google.com/project/tactile-cosine-j2t1j/authentication/providers"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-red-500/20 hover:bg-red-500/30 border border-red-400/40 text-white font-semibold transition-colors"
+                >
+                  <span>Habilitar Email/Password en Firebase</span>
+                  <ExternalLink className="w-3.5 h-3.5" />
+                </a>
+              )}
             </div>
           )}
 

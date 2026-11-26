@@ -50,11 +50,13 @@ service cloud.firestore {
       );
     }
 
-    function isAuthorizedClient() {
+    function isNotSuspendedVerifiedUser() {
       return isAdmin() || (
         isVerifiedUser()
-        && exists(/databases/$(database)/documents/clients/$(userEmail()))
-        && get(/databases/$(database)/documents/clients/$(userEmail())).data.active == true
+        && (
+          !exists(/databases/$(database)/documents/clients/$(userEmail()))
+          || get(/databases/$(database)/documents/clients/$(userEmail())).data.active == true
+        )
       );
     }
 
@@ -267,7 +269,7 @@ service cloud.firestore {
         && incoming().uid == request.auth.uid
         && incoming().email == userEmail()
         && incoming().enteredAt == request.time
-        && isAuthorizedClient();
+        && isNotSuspendedVerifiedUser();
       allow update: if false;
       allow delete: if isVerifiedUser() && isValidId(logId) && isAdmin();
     }
@@ -275,7 +277,7 @@ service cloud.firestore {
     // --- Per-User Cloud Workspace (Playlists & Samplers) ---
     match /userWorkspaces/{uid} {
       allow get: if isVerifiedUser() && isValidId(uid) && (
-        (uid == request.auth.uid && isAuthorizedClient()) || isAdmin()
+        (uid == request.auth.uid && isNotSuspendedVerifiedUser()) || isAdmin()
       );
       allow list: if isAdmin();
       allow create: if isVerifiedUser()
@@ -285,7 +287,7 @@ service cloud.firestore {
         && incoming().uid == request.auth.uid
         && incoming().email == userEmail()
         && incoming().updatedAt == request.time
-        && isAuthorizedClient();
+        && isNotSuspendedVerifiedUser();
       allow update: if isVerifiedUser()
         && isValidId(uid)
         && uid == request.auth.uid
@@ -296,7 +298,7 @@ service cloud.firestore {
         && incoming().diff(existing()).affectedKeys().hasOnly([
           'playlists', 'tracksMeta', 'samplerBanks', 'activeBankId', 'updatedAt'
         ])
-        && isAuthorizedClient();
+        && isNotSuspendedVerifiedUser();
       allow delete: if isVerifiedUser() && isValidId(uid) && (uid == request.auth.uid || isAdmin());
     }
   }

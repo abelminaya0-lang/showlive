@@ -156,13 +156,17 @@ export async function submitAccessRequest(user: User): Promise<void> {
 
 export async function recordAuthorizedClientEntry(
   user: User,
-  currentClient: AuthorizedClient
+  currentClient?: AuthorizedClient | null
 ): Promise<void> {
   const cleanEmail = normalizeEmail(user.email);
   if (!cleanEmail) return;
 
-  const clientPath = `clients/${cleanEmail}`;
-  if (!currentClient.uid || currentClient.uid === user.uid) {
+  if (
+    currentClient &&
+    currentClient.active &&
+    (!currentClient.uid || currentClient.uid === user.uid)
+  ) {
+    const clientPath = `clients/${cleanEmail}`;
     try {
       await updateDoc(doc(db, 'clients', cleanEmail), {
         uid: user.uid,
@@ -183,7 +187,7 @@ export async function recordAuthorizedClientEntry(
     await setDoc(doc(db, 'accessLogs', logId), {
       uid: user.uid,
       email: cleanEmail,
-      displayName: (user.displayName || currentClient.clientName || cleanEmail).slice(0, 100),
+      displayName: (user.displayName || currentClient?.clientName || cleanEmail).slice(0, 100),
       enteredAt: serverTimestamp(),
     });
   } catch (error) {

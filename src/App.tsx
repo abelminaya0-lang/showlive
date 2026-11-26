@@ -168,8 +168,9 @@ export default function App() {
   const loggedEntryForUidRef = useRef<string | null>(null);
   const cloudSaveTimerRef = useRef<number | null>(null);
 
+  const clientSuspended = Boolean(clientRecord && !clientRecord.active);
   const isAuthorized = Boolean(
-    authUser && authUser.emailVerified && (isAdmin || clientRecord?.active)
+    authUser && authUser.emailVerified && (isAdmin || !clientSuspended)
   );
 
   const showToast = useCallback((msg: string) => {
@@ -187,6 +188,8 @@ export default function App() {
     let unsubClient: (() => void) | null = null;
     let unsubRequest: (() => void) | null = null;
     let lastIdentityKey = '';
+    let disposed = false;
+    let runSeq = 0;
 
     const unsubAuth = onIdTokenChanged(auth, async (fbUser) => {
       const nextKey = fbUser
@@ -197,6 +200,7 @@ export default function App() {
         return;
       }
       lastIdentityKey = nextKey;
+      const mySeq = ++runSeq;
 
       if (unsubClient) {
         unsubClient();
@@ -208,7 +212,6 @@ export default function App() {
       }
 
       setAuthUser(fbUser);
-      setAuthError(null);
 
       if (!fbUser || !fbUser.email) {
         setIsAdmin(false);
@@ -223,6 +226,7 @@ export default function App() {
         return;
       }
 
+      setAuthError(null);
       setShowLoginScreen(false);
 
       if (!fbUser.emailVerified) {
@@ -243,6 +247,8 @@ export default function App() {
       } catch {
         adminFlag = false;
       }
+
+      if (disposed || mySeq !== runSeq) return;
       setIsAdmin(adminFlag);
 
       if (adminFlag) {
@@ -279,6 +285,7 @@ export default function App() {
     });
 
     return () => {
+      disposed = true;
       unsubAuth();
       if (unsubClient) unsubClient();
       if (unsubRequest) unsubRequest();
@@ -319,12 +326,15 @@ export default function App() {
     }
   }, [authLoading, authUser, clientChecked, inStudio, isAuthorized, showToast]);
 
-  // Record client studio entry count & audit log once per session
+  // Record user studio entry log once per session
   useEffect(() => {
     if (
       authUser &&
+      authUser.emailVerified &&
+      clientChecked &&
+      !authLoading &&
       !isAdmin &&
-      clientRecord?.active &&
+      !clientSuspended &&
       loggedEntryForUidRef.current !== authUser.uid
     ) {
       loggedEntryForUidRef.current = authUser.uid;
@@ -332,7 +342,7 @@ export default function App() {
         // Handled cleanly via handleFirestoreError
       });
     }
-  }, [authUser, clientRecord, isAdmin]);
+  }, [authUser, authLoading, clientChecked, clientRecord, clientSuspended, isAdmin]);
 
   // Rehydrate user's cloud workspace (playlists & samplers) + local IndexedDB blobs
   useEffect(() => {
@@ -509,7 +519,7 @@ export default function App() {
         setAuthError('Demasiados intentos seguidos. Espera unos minutos o restablece tu contraseña.');
       } else if (code === 'auth/operation-not-allowed') {
         setAuthError(
-          'El inicio con Email/Contraseña aún no está habilitado en Firebase Authentication (Sign-in method).'
+          'El inicio con Email/Contraseña aún no está activado en Firebase (Sign-in method). Actívalo abajo o entra directo con "Iniciar sesión con Google".'
         );
       } else if (code === 'auth/network-request-failed') {
         setAuthError('Error de red al conectar. Verifica tu conexión.');
@@ -544,7 +554,7 @@ export default function App() {
         setAuthError('Demasiados intentos seguidos. Espera unos minutos antes de reintentar.');
       } else if (code === 'auth/operation-not-allowed') {
         setAuthError(
-          'El registro con Email/Contraseña aún no está habilitado en Firebase Authentication (Sign-in method).'
+          'El registro con Email/Contraseña aún no está activado en Firebase (Sign-in method). Actívalo abajo o entra con Google.'
         );
       } else {
         setAuthError(`No se pudo crear la cuenta (${code || err?.message || 'error'}).`);
@@ -570,7 +580,7 @@ export default function App() {
       } else if (code === 'auth/too-many-requests') {
         setAuthError('Demasiados intentos seguidos. Espera unos minutos antes de reintentar.');
       } else if (code === 'auth/operation-not-allowed') {
-        setAuthError('Email/Contraseña no está habilitado en Firebase Authentication.');
+        setAuthError('Email/Contraseña no está activado en Firebase (Sign-in method).');
       } else {
         setAuthError(`No se pudo enviar el correo (${code || err?.message || 'error'}).`);
       }
