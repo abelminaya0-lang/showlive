@@ -2,6 +2,7 @@ import React, { useEffect } from 'react';
 import { ArrowLeftRight, FolderOpen, Repeat } from 'lucide-react';
 import { audioEngine } from '../audio/audioEngine';
 import { ChannelEqState, DeckId, MixerState } from '../types/showlive';
+import { MixerSpectrogram } from './MixerSpectrogram';
 
 interface MixerPanelProps {
   mixer: MixerState;
@@ -19,6 +20,7 @@ interface HardwareKnobProps {
   max: number;
   defaultValue: number;
   unit?: string;
+  ringColor?: 'cyan' | 'yellow' | 'pink';
   onChange: (val: number) => void;
 }
 
@@ -29,6 +31,7 @@ const HardwareKnob: React.FC<HardwareKnobProps> = ({
   max,
   defaultValue,
   unit = '',
+  ringColor = 'cyan',
   onChange,
 }) => {
   let angleDeg = 0;
@@ -37,6 +40,20 @@ const HardwareKnob: React.FC<HardwareKnobProps> = ({
   } else if (value > defaultValue && max > defaultValue) {
     angleDeg = 135 * ((value - defaultValue) / (max - defaultValue));
   }
+
+  const ringStyles =
+    ringColor === 'yellow'
+      ? 'border-2 border-[#FACC15] shadow-[0_0_10px_rgba(250,204,21,0.35)]'
+      : ringColor === 'pink'
+      ? 'border-2 border-[#EC287B] shadow-[0_0_10px_rgba(236,40,123,0.4)]'
+      : 'border-2 border-[#22D3EE] shadow-[0_0_10px_rgba(34,211,238,0.35)]';
+
+  const pointerBg =
+    ringColor === 'yellow'
+      ? 'bg-[#FACC15]'
+      : ringColor === 'pink'
+      ? 'bg-[#EC287B]'
+      : 'bg-white';
 
   return (
     <div className="flex flex-col items-center gap-1 select-none">
@@ -72,18 +89,18 @@ const HardwareKnob: React.FC<HardwareKnobProps> = ({
           window.addEventListener('pointerup', onUp);
         }}
         title={`${label}: ${value > 0 ? '+' : ''}${value}${unit} (Arrastra arriba/abajo, doble clic = centro)`}
-        className="relative w-8 h-8 lg:w-9 lg:h-9 rounded-full bg-[#09090D] p-[2.5px] shadow-[0_2px_6px_rgba(0,0,0,0.85)] flex items-center justify-center cursor-ns-resize group touch-none"
+        className={`relative w-8 h-8 rounded-full bg-[#090A0E] p-[2px] flex items-center justify-center cursor-ns-resize group touch-none ${ringStyles}`}
       >
-        <div className="w-full h-full rounded-full bg-gradient-to-b from-[#555A65] via-[#3A3E47] to-[#282B33] border border-white/15 group-hover:border-white/35 transition-colors flex items-center justify-center">
+        <div className="w-full h-full rounded-full bg-gradient-to-b from-[#2A2E39] via-[#1B1E26] to-[#12141A] border border-white/10 group-hover:border-white/30 transition-colors flex items-center justify-center">
           <div
             className="w-full h-full flex items-start justify-center pt-[3px] pointer-events-none"
             style={{ transform: `rotate(${angleDeg}deg)` }}
           >
-            <span className="w-[2.5px] h-3 rounded-full bg-white shadow-[0_0_3px_rgba(255,255,255,0.8)]" />
+            <span className={`w-[2.5px] h-3 rounded-full ${pointerBg} shadow-[0_0_4px_rgba(255,255,255,0.7)]`} />
           </div>
         </div>
       </div>
-      <span className="text-[11px] font-medium text-slate-400 lowercase leading-none tracking-wide">
+      <span className="text-[10px] font-bold text-slate-300 uppercase leading-none tracking-wider">
         {label}
       </span>
     </div>
@@ -103,7 +120,7 @@ const TwinRailFader: React.FC<TwinRailFaderProps> = ({
   return (
     <div
       className={`relative flex items-center justify-center cursor-ns-resize select-none touch-none ${
-        compactMobile ? 'w-12 flex-1 min-h-[84px] py-2' : 'w-12 h-[182px] py-2.5'
+        compactMobile ? 'w-12 flex-1 min-h-[84px] py-2' : 'w-12 h-full min-h-[104px] max-h-[144px] py-2'
       }`}
       onDoubleClick={() => onChange(1.0)}
       title={`${label}: ${Math.round((volume / 1.2) * 100)}% (Doble clic = 100%)`}
@@ -151,15 +168,15 @@ const TwinRailFader: React.FC<TwinRailFaderProps> = ({
           </div>
         ))}
 
-        {/* Wide metallic grey fader cap */}
+        {/* Wide metallic matte hardware fader cap */}
         <div
-          className="absolute left-1/2 w-11 h-[19px] rounded-[4px] bg-gradient-to-b from-[#969CA6] via-[#676C76] to-[#4A4E58] border border-black shadow-[0_3px_8px_rgba(0,0,0,0.85)] pointer-events-none flex items-center justify-center"
+          className="absolute left-1/2 w-11 h-[19px] rounded-[4px] bg-gradient-to-b from-[#2E3340] via-[#1C2029] to-[#11131A] border border-white/25 shadow-[0_3px_8px_rgba(0,0,0,0.9)] pointer-events-none flex items-center justify-center"
           style={{
             bottom: `calc(${pct}% - ${pct * 0.19}px)`,
             transform: 'translateX(-50%)',
           }}
         >
-          <div className="w-8 h-[1px] bg-white/35 rounded-full" />
+          <div className="w-8 h-[2px] bg-[#FACC15] rounded-full shadow-[0_0_6px_rgba(250,204,21,0.7)]" />
         </div>
       </div>
     </div>
@@ -261,19 +278,19 @@ export const MixerPanel: React.FC<MixerPanelProps> = ({
           <div className="w-full h-[4px] rounded-full bg-[#050508] border border-white/[0.04]" />
         </div>
 
-        {/* Vertical metallic grey crossfader cap */}
+        {/* Vertical metallic matte crossfader cap */}
         <div
-          className="absolute top-1/2 -translate-y-1/2 w-5 h-8 lg:h-9 rounded-[4px] bg-gradient-to-r from-[#969CA6] via-[#676C76] to-[#4A4E58] border border-black shadow-[0_3px_8px_rgba(0,0,0,0.85)] pointer-events-none flex items-center justify-center"
+          className="absolute top-1/2 -translate-y-1/2 w-5 h-8 lg:h-9 rounded-[4px] bg-gradient-to-r from-[#2E3340] via-[#1C2029] to-[#11131A] border border-white/25 shadow-[0_3px_8px_rgba(0,0,0,0.9)] pointer-events-none flex items-center justify-center"
           style={{
             left: `calc(${xfPct}% - ${xfPct * 0.2}px)`,
           }}
         >
-          <div className="h-5 lg:h-6 w-[1px] bg-white/35 rounded-full" />
+          <div className="h-5 lg:h-6 w-[2px] bg-[#FACC15] rounded-full shadow-[0_0_6px_rgba(250,204,21,0.7)]" />
         </div>
       </div>
 
       <span
-        className="text-[10px] text-slate-500 cursor-pointer hover:text-white"
+        className="text-[10px] text-[#EC287B] cursor-pointer hover:text-white"
         onClick={() => onChangeCrossfader(1)}
         title="Ir a Deck B"
       >
@@ -283,13 +300,16 @@ export const MixerPanel: React.FC<MixerPanelProps> = ({
   );
 
   return (
-    <div className="w-full flex-1 lg:flex-none lg:w-[248px] shrink-0 bg-[#1B1028] border border-white/10 rounded-lg px-2.5 py-2 flex flex-col justify-between select-none min-h-0">
+    <div className="relative w-full flex-1 lg:flex-none lg:w-[248px] shrink-0 bg-[#11131A] border border-[#FACC15]/45 rounded-lg px-2.5 py-2 flex flex-col justify-between select-none min-h-0 overflow-hidden shadow-[0_0_24px_rgba(0,0,0,0.6)]">
+      {/* Subtle Mashup Reverse tri-color top faceplate trim */}
+      <div className="studio-tricolor-bar absolute top-0 inset-x-0 h-[3px] pointer-events-none" />
+
       {/* DESKTOP TOP UTILITY ROW (lg+) */}
-      <div className="hidden lg:flex items-center gap-1.5 w-full mb-1">
+      <div className="hidden lg:flex items-center gap-1.5 w-full mb-1 pt-0.5">
         <button
           type="button"
           onClick={onFocusFiles}
-          className="flex items-center justify-center gap-1 px-2 py-1 rounded border border-white/15 bg-black/30 hover:bg-black/50 text-slate-300 hover:text-white text-[10px] font-bold tracking-wider cursor-pointer transition-colors"
+          className="flex items-center justify-center gap-1 px-2 py-1 rounded border border-[#22D3EE]/50 bg-[#0A0B0F] hover:bg-[#161922] text-[#22D3EE] hover:text-white text-[10px] font-bold tracking-wider cursor-pointer transition-colors"
           title="Ir a Biblioteca de Archivos"
         >
           <FolderOpen className="w-3 h-3" />
@@ -299,10 +319,10 @@ export const MixerPanel: React.FC<MixerPanelProps> = ({
         <button
           type="button"
           onClick={onToggleAutoMix}
-          className={`flex-1 flex items-center justify-center gap-1 py-1 rounded border text-[10px] font-bold tracking-wider cursor-pointer transition-all ${
+          className={`flex-1 flex items-center justify-center gap-1 py-1 rounded border text-[10px] font-extrabold tracking-wider cursor-pointer transition-all ${
             mixer.autoMixEnabled
-              ? 'border-emerald-400 bg-emerald-500/25 text-emerald-200 shadow-[0_0_12px_rgba(16,185,129,0.35)]'
-              : 'border-white/15 bg-black/30 hover:bg-black/50 text-slate-300 hover:text-white'
+              ? 'border-[#FACC15] bg-[#FACC15] text-[#090A0E] shadow-[0_0_14px_rgba(250,204,21,0.5)]'
+              : 'border-white/20 bg-[#0A0B0F] hover:border-[#FACC15]/60 text-slate-200 hover:text-white'
           }`}
           title="AutoMix: Al terminar la canción de un Deck, pasa automáticamente al otro Deck"
         >
@@ -313,7 +333,7 @@ export const MixerPanel: React.FC<MixerPanelProps> = ({
         <button
           type="button"
           onClick={onManualCrossfadeNow}
-          className="px-2 py-1 rounded border border-amber-500/40 bg-amber-500/10 hover:bg-amber-500/25 text-amber-300 text-[10px] font-bold cursor-pointer transition-colors"
+          className="px-2 py-1 rounded border border-[#EC287B]/60 bg-[#0A0B0F] hover:bg-[#EC287B]/20 text-[#EC287B] hover:text-white text-[10px] font-bold cursor-pointer transition-colors"
           title="Hacer transición automática al otro Deck ahora"
         >
           <ArrowLeftRight className="w-3 h-3" />
@@ -321,8 +341,8 @@ export const MixerPanel: React.FC<MixerPanelProps> = ({
       </div>
 
       {/* DESKTOP 4-COLUMN HARDWARE MIXER (lg+) */}
-      <div className="hidden lg:flex flex-1 items-center justify-between gap-1 px-0.5">
-        <div className="flex flex-col items-center justify-evenly h-full py-1">
+      <div className="hidden lg:flex flex-1 min-h-0 items-center justify-between gap-1 px-1 py-1 rounded-md bg-[#0A0B0F]/90 border border-white/10">
+        <div className="flex flex-col items-center justify-evenly h-full py-0.5">
           <HardwareKnob
             label="mid"
             value={mixer.A.mid}
@@ -330,6 +350,7 @@ export const MixerPanel: React.FC<MixerPanelProps> = ({
             max={12}
             defaultValue={0}
             unit=" dB"
+            ringColor="cyan"
             onChange={(v) => onChangeChannel('A', { mid: v })}
           />
           <HardwareKnob
@@ -339,6 +360,7 @@ export const MixerPanel: React.FC<MixerPanelProps> = ({
             max={12}
             defaultValue={0}
             unit=" dB"
+            ringColor="yellow"
             onChange={(v) => onChangeChannel('A', { low: v })}
           />
           <HardwareKnob
@@ -347,23 +369,24 @@ export const MixerPanel: React.FC<MixerPanelProps> = ({
             min={-1}
             max={1}
             defaultValue={0}
+            ringColor="cyan"
             onChange={(v) => onChangeChannel('A', { filter: v })}
           />
         </div>
 
-        <div className="flex items-center justify-center gap-2">
+        <div className="h-full flex items-center justify-center gap-2 py-0.5">
           <TwinRailFader
             label="VOL A"
             volume={mixer.A.volume}
             railFillRefs={desktopVuARefs}
-            tipColor="#EA580C"
+            tipColor="#22D3EE"
             onChange={(v) => onChangeChannel('A', { volume: v })}
           />
           <TwinRailFader
             label="VOL B"
             volume={mixer.B.volume}
             railFillRefs={desktopVuBRefs}
-            tipColor="#EF4444"
+            tipColor="#EC287B"
             onChange={(v) => onChangeChannel('B', { volume: v })}
           />
         </div>
@@ -376,6 +399,7 @@ export const MixerPanel: React.FC<MixerPanelProps> = ({
             max={12}
             defaultValue={0}
             unit=" dB"
+            ringColor="pink"
             onChange={(v) => onChangeChannel('B', { mid: v })}
           />
           <HardwareKnob
@@ -385,6 +409,7 @@ export const MixerPanel: React.FC<MixerPanelProps> = ({
             max={12}
             defaultValue={0}
             unit=" dB"
+            ringColor="yellow"
             onChange={(v) => onChangeChannel('B', { low: v })}
           />
           <HardwareKnob
@@ -393,16 +418,17 @@ export const MixerPanel: React.FC<MixerPanelProps> = ({
             min={-1}
             max={1}
             defaultValue={0}
+            ringColor="pink"
             onChange={(v) => onChangeChannel('B', { filter: v })}
           />
         </div>
       </div>
 
-      {/* MOBILE CELLULAR MIXER STRUCTURE (< lg) matching cellular reference */}
-      <div className="flex lg:hidden flex-1 min-h-0 items-stretch justify-between gap-1.5 px-0.5">
+      {/* MOBILE CELLULAR MIXER STRUCTURE (< lg) */}
+      <div className="flex lg:hidden flex-1 min-h-0 items-stretch justify-between gap-1.5 px-1 py-1 rounded-md bg-[#0A0B0F]/90 border border-white/10">
         {/* CH A Column */}
         <div className="flex-1 flex flex-col items-center justify-between py-0.5 min-h-0">
-          <span className="text-[10px] font-bold tracking-wider text-slate-300 uppercase mb-1">
+          <span className="text-[10px] font-extrabold tracking-wider text-[#22D3EE] uppercase mb-1">
             CH A
           </span>
           <div className="flex items-center justify-center gap-1.5 sm:gap-2.5 w-full">
@@ -413,6 +439,7 @@ export const MixerPanel: React.FC<MixerPanelProps> = ({
               max={12}
               defaultValue={0}
               unit=" dB"
+              ringColor="cyan"
               onChange={(v) => onChangeChannel('A', { mid: v })}
             />
             <HardwareKnob
@@ -422,6 +449,7 @@ export const MixerPanel: React.FC<MixerPanelProps> = ({
               max={12}
               defaultValue={0}
               unit=" dB"
+              ringColor="yellow"
               onChange={(v) => onChangeChannel('A', { low: v })}
             />
             <HardwareKnob
@@ -430,6 +458,7 @@ export const MixerPanel: React.FC<MixerPanelProps> = ({
               min={-1}
               max={1}
               defaultValue={0}
+              ringColor="cyan"
               onChange={(v) => onChangeChannel('A', { filter: v })}
             />
           </div>
@@ -437,11 +466,11 @@ export const MixerPanel: React.FC<MixerPanelProps> = ({
             label="VOL A"
             volume={mixer.A.volume}
             railFillRefs={mobileVuARefs}
-            tipColor="#EA580C"
+            tipColor="#22D3EE"
             compactMobile
             onChange={(v) => onChangeChannel('A', { volume: v })}
           />
-          <span className="text-[9px] font-bold tracking-wider text-slate-400">
+          <span className="text-[9px] font-bold tracking-wider text-[#22D3EE]">
             VOL A
           </span>
         </div>
@@ -451,7 +480,7 @@ export const MixerPanel: React.FC<MixerPanelProps> = ({
           <button
             type="button"
             onClick={onFocusFiles}
-            className="w-full py-1.5 rounded border border-cyan-500/50 bg-cyan-500/10 text-cyan-300 flex flex-col items-center justify-center gap-0.5 text-[9px] font-bold cursor-pointer"
+            className="w-full py-1.5 rounded border border-[#22D3EE]/55 bg-[#12151E] text-[#22D3EE] flex flex-col items-center justify-center gap-0.5 text-[9px] font-bold cursor-pointer"
           >
             <FolderOpen className="w-3.5 h-3.5" />
             <span>FILES</span>
@@ -462,8 +491,8 @@ export const MixerPanel: React.FC<MixerPanelProps> = ({
             onClick={onToggleAutoMix}
             className={`w-full py-2 rounded border text-[9px] font-extrabold tracking-wide flex flex-col items-center justify-center gap-0.5 cursor-pointer transition-all ${
               mixer.autoMixEnabled
-                ? 'border-emerald-400 bg-emerald-500/25 text-emerald-200 shadow-[0_0_12px_rgba(16,185,129,0.35)]'
-                : 'border-white/15 bg-black/35 text-slate-300'
+                ? 'border-[#FACC15] bg-[#FACC15] text-[#090A0E] shadow-[0_0_12px_rgba(250,204,21,0.5)]'
+                : 'border-white/20 bg-[#12151E] text-slate-200'
             }`}
             title="AutoMix automático al terminar canción"
           >
@@ -474,7 +503,7 @@ export const MixerPanel: React.FC<MixerPanelProps> = ({
           <button
             type="button"
             onClick={onManualCrossfadeNow}
-            className="w-full py-1.5 rounded border border-amber-500/40 bg-amber-500/10 text-amber-300 flex items-center justify-center cursor-pointer"
+            className="w-full py-1.5 rounded border border-[#EC287B]/55 bg-[#12151E] text-[#EC287B] flex items-center justify-center cursor-pointer"
             title="Cambiar de Deck ahora"
           >
             <ArrowLeftRight className="w-3.5 h-3.5" />
@@ -483,7 +512,7 @@ export const MixerPanel: React.FC<MixerPanelProps> = ({
 
         {/* CH B Column */}
         <div className="flex-1 flex flex-col items-center justify-between py-0.5 min-h-0">
-          <span className="text-[10px] font-bold tracking-wider text-slate-300 uppercase mb-1">
+          <span className="text-[10px] font-extrabold tracking-wider text-[#EC287B] uppercase mb-1">
             CH B
           </span>
           <div className="flex items-center justify-center gap-1.5 sm:gap-2.5 w-full">
@@ -494,6 +523,7 @@ export const MixerPanel: React.FC<MixerPanelProps> = ({
               max={12}
               defaultValue={0}
               unit=" dB"
+              ringColor="pink"
               onChange={(v) => onChangeChannel('B', { mid: v })}
             />
             <HardwareKnob
@@ -503,6 +533,7 @@ export const MixerPanel: React.FC<MixerPanelProps> = ({
               max={12}
               defaultValue={0}
               unit=" dB"
+              ringColor="yellow"
               onChange={(v) => onChangeChannel('B', { low: v })}
             />
             <HardwareKnob
@@ -511,6 +542,7 @@ export const MixerPanel: React.FC<MixerPanelProps> = ({
               min={-1}
               max={1}
               defaultValue={0}
+              ringColor="pink"
               onChange={(v) => onChangeChannel('B', { filter: v })}
             />
           </div>
@@ -518,14 +550,19 @@ export const MixerPanel: React.FC<MixerPanelProps> = ({
             label="VOL B"
             volume={mixer.B.volume}
             railFillRefs={mobileVuBRefs}
-            tipColor="#EF4444"
+            tipColor="#EC287B"
             compactMobile
             onChange={(v) => onChangeChannel('B', { volume: v })}
           />
-          <span className="text-[9px] font-bold tracking-wider text-slate-400">
+          <span className="text-[9px] font-bold tracking-wider text-[#EC287B]">
             VOL B
           </span>
         </div>
+      </div>
+
+      {/* Real-Time Web Audio Master Spectrogram (Frequencies + Bass/Mid/Treble) */}
+      <div className="mt-1 shrink-0">
+        <MixerSpectrogram />
       </div>
 
       {/* Bottom Twin-Rail Hardware Crossfader */}

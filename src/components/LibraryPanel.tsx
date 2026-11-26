@@ -143,11 +143,11 @@ export const LibraryPanel: React.FC<LibraryPanelProps> = ({
   }, [ytResults, karaokeOnly]);
 
   return (
-    <div className="flex-1 min-w-0 bg-[#0A0C12] border border-white/10 rounded-lg flex flex-col md:flex-row overflow-hidden">
+    <div className="flex-1 min-w-0 bg-[#101218] border border-white/15 rounded-lg flex flex-col md:flex-row overflow-hidden">
       {/* Left Sidebar (Desktop) / Top Compact Bar (Mobile): LIBRARY & PLAYLISTS */}
-      <aside className="w-full md:w-[195px] shrink-0 bg-[#090B10] border-b md:border-b-0 md:border-r border-white/10 p-2 md:p-2.5 flex flex-col gap-2 md:gap-4 select-none overflow-y-auto max-h-[170px] md:max-h-none">
+      <aside className="w-full md:w-[195px] shrink-0 bg-[#0A0B0F] border-b md:border-b-0 md:border-r border-white/10 p-2 md:p-2.5 flex flex-col gap-2 md:gap-4 select-none overflow-y-auto max-h-[170px] md:max-h-none">
         <div className="flex md:flex-col items-center md:items-stretch justify-between gap-2">
-          <p className="hidden md:block text-[10px] font-bold tracking-wider uppercase text-slate-500 px-2 mb-1">
+          <p className="hidden md:block text-[10px] font-extrabold tracking-wider uppercase text-[#FACC15] px-2 mb-1">
             Library
           </p>
           <div className="flex md:flex-col gap-1 flex-1 md:flex-none">
@@ -157,9 +157,9 @@ export const LibraryPanel: React.FC<LibraryPanelProps> = ({
                 onSelectTab('local');
                 onSelectPlaylist(null);
               }}
-              className={`flex-1 md:flex-none flex items-center justify-center md:justify-start gap-1.5 md:gap-2 px-2.5 py-2 rounded-md text-xs font-semibold transition-colors cursor-pointer ${
+              className={`flex-1 md:flex-none flex items-center justify-center md:justify-start gap-1.5 md:gap-2 px-2.5 py-2 rounded-md text-xs font-bold transition-all cursor-pointer ${
                 activeTab === 'local' && !selectedPlaylistId
-                  ? 'bg-[#26111B] border border-[#F4256A]/60 text-[#F973A2]'
+                  ? 'bg-[#141720] border-2 border-[#22D3EE] text-[#22D3EE] shadow-[0_0_12px_rgba(34,211,238,0.2)]'
                   : 'text-slate-300 hover:bg-white/5 border border-transparent'
               }`}
             >
@@ -170,9 +170,9 @@ export const LibraryPanel: React.FC<LibraryPanelProps> = ({
             <button
               type="button"
               onClick={() => onSelectTab('youtube')}
-              className={`flex-1 md:flex-none flex items-center justify-center md:justify-start gap-1.5 md:gap-2 px-2.5 py-2 rounded-md text-xs font-semibold transition-colors cursor-pointer ${
+              className={`flex-1 md:flex-none flex items-center justify-center md:justify-start gap-1.5 md:gap-2 px-2.5 py-2 rounded-md text-xs font-bold transition-all cursor-pointer ${
                 activeTab === 'youtube'
-                  ? 'bg-[#26111B] border border-[#F4256A]/60 text-[#F973A2]'
+                  ? 'bg-[#141720] border-2 border-[#EC287B] text-[#EC287B] shadow-[0_0_12px_rgba(236,40,123,0.25)]'
                   : 'text-slate-300 hover:bg-white/5 border border-transparent'
               }`}
             >
@@ -184,10 +184,10 @@ export const LibraryPanel: React.FC<LibraryPanelProps> = ({
           <button
             type="button"
             onClick={() => folderInputRef.current?.click()}
-            className="md:hidden flex items-center gap-1 px-2.5 py-2 rounded-md bg-[#131722] border border-white/10 text-[11px] font-medium text-slate-200 cursor-pointer shrink-0"
+            className="md:hidden flex items-center gap-1 px-2.5 py-2 rounded-md bg-[#141720] border border-[#FACC15]/55 text-[11px] font-bold text-[#FACC15] cursor-pointer shrink-0"
             title="Cargar Carpeta"
           >
-            <FolderPlus className="w-3.5 h-3.5 text-cyan-400" />
+            <FolderPlus className="w-3.5 h-3.5 text-[#FACC15]" />
             <span>Carpeta</span>
           </button>
         </div>
@@ -234,7 +234,7 @@ export const LibraryPanel: React.FC<LibraryPanelProps> = ({
                     key={pl.id}
                     className={`group flex items-center justify-between gap-1 px-2 py-1 md:py-1.5 rounded-md transition-colors shrink-0 ${
                       active
-                        ? 'bg-[#26111B] border border-[#F4256A]/50 text-white'
+                        ? 'bg-[#141720] border border-[#FACC15] text-[#FACC15]'
                         : 'text-slate-400 hover:text-slate-200 hover:bg-white/5 border border-white/5 md:border-transparent'
                     }`}
                   >
@@ -246,7 +246,7 @@ export const LibraryPanel: React.FC<LibraryPanelProps> = ({
                       }}
                       className="flex items-center gap-1.5 md:gap-2 min-w-0 flex-1 text-xs font-medium text-left cursor-pointer"
                     >
-                      <Folder className="w-3.5 h-3.5 shrink-0 text-slate-400" />
+                      <Folder className={`w-3.5 h-3.5 shrink-0 ${active ? 'text-[#FACC15]' : 'text-slate-400'}`} />
                       <span className="truncate max-w-[110px] md:max-w-none">{pl.name}</span>
                     </button>
                     <button
@@ -264,13 +264,13 @@ export const LibraryPanel: React.FC<LibraryPanelProps> = ({
           </div>
 
           {/* Import Local Folder button (Desktop) */}
-          <div className="hidden md:block mt-auto pt-3 border-t border-white/5">
+          <div className="hidden md:block mt-auto pt-3 border-t border-white/10">
             <button
               type="button"
               onClick={() => folderInputRef.current?.click()}
-              className="w-full flex items-center justify-center gap-1.5 px-2.5 py-1.5 rounded-md bg-[#131722] hover:bg-[#1B2030] border border-white/10 text-[11px] font-medium text-slate-300 cursor-pointer transition-colors"
+              className="w-full flex items-center justify-center gap-1.5 px-2.5 py-1.5 rounded-md bg-[#141720] hover:bg-[#1B202C] border border-[#FACC15]/55 text-[11px] font-bold text-[#FACC15] cursor-pointer transition-colors"
             >
-              <FolderPlus className="w-3.5 h-3.5 text-cyan-400" />
+              <FolderPlus className="w-3.5 h-3.5 text-[#FACC15]" />
               <span className="truncate">Cargar Carpeta</span>
             </button>
           </div>
@@ -325,10 +325,10 @@ export const LibraryPanel: React.FC<LibraryPanelProps> = ({
 
         {activeTab === 'local' ? (
           <>
-            {/* Top Bar of Track Table (Matches Image 2) */}
-            <div className="flex flex-wrap items-center justify-between gap-2 px-4 py-2.5 border-b border-white/10 bg-[#0D1018]">
+            {/* Top Bar of Track Table */}
+            <div className="flex flex-wrap items-center justify-between gap-2 px-4 py-2.5 border-b border-white/10 bg-[#101218]">
               <div className="flex items-center gap-3 flex-wrap">
-                <h2 className="font-display text-sm font-bold text-white whitespace-nowrap">
+                <h2 className="font-display text-sm font-extrabold text-[#FACC15] whitespace-nowrap">
                   {selectedPlaylistId
                     ? playlists.find((p) => p.id === selectedPlaylistId)?.name ||
                       'Tracks in Library'
@@ -338,9 +338,9 @@ export const LibraryPanel: React.FC<LibraryPanelProps> = ({
                 <button
                   type="button"
                   onClick={() => fileInputRef.current?.click()}
-                  className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded bg-[#181C28] hover:bg-[#23293A] border border-white/10 text-xs font-medium text-slate-200 cursor-pointer transition-colors whitespace-nowrap"
+                  className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded bg-[#0A0B0F] hover:bg-[#181C26] border border-[#22D3EE]/55 text-xs font-bold text-[#22D3EE] cursor-pointer transition-colors whitespace-nowrap"
                 >
-                  <Upload className="w-3.5 h-3.5 text-slate-300" />
+                  <Upload className="w-3.5 h-3.5" />
                   <span>Subir Música</span>
                 </button>
 
@@ -348,7 +348,7 @@ export const LibraryPanel: React.FC<LibraryPanelProps> = ({
                   <button
                     type="button"
                     onClick={onClearLibrary}
-                    className="inline-flex items-center gap-1 px-2 py-1 rounded bg-[#151823] hover:bg-red-600/20 border border-white/10 hover:border-red-500/40 text-xs font-medium text-slate-400 hover:text-red-300 cursor-pointer transition-colors whitespace-nowrap"
+                    className="inline-flex items-center gap-1 px-2 py-1 rounded bg-[#0A0B0F] hover:bg-[#EC287B]/20 border border-white/15 hover:border-[#EC287B]/60 text-xs font-medium text-slate-400 hover:text-[#EC287B] cursor-pointer transition-colors whitespace-nowrap"
                     title="Limpiar todas las pistas y empezar desde cero"
                   >
                     <Trash2 className="w-3 h-3" />
@@ -364,7 +364,7 @@ export const LibraryPanel: React.FC<LibraryPanelProps> = ({
                     value={searchFilter}
                     onChange={(e) => setSearchFilter(e.target.value)}
                     placeholder="Filtrar pista..."
-                    className="pl-7 pr-2.5 py-1 w-36 sm:w-44 rounded bg-[#121520] border border-white/10 text-xs text-slate-200 placeholder:text-slate-500 focus:outline-none focus:border-cyan-500/60"
+                    className="pl-7 pr-2.5 py-1 w-36 sm:w-44 rounded bg-[#0A0B0F] border border-white/15 text-xs text-slate-200 placeholder:text-slate-500 focus:outline-none focus:border-[#22D3EE]"
                   />
                 </div>
               </div>
@@ -372,7 +372,7 @@ export const LibraryPanel: React.FC<LibraryPanelProps> = ({
               <button
                 type="button"
                 onClick={onOpenStemModal}
-                className="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-md bg-gradient-to-r from-[#7C3AED] to-[#6D28D9] hover:from-[#8B5CF6] hover:to-[#7C3AED] text-white text-xs font-bold shadow-md shadow-purple-900/30 cursor-pointer transition-all whitespace-nowrap"
+                className="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-md bg-[#FACC15] hover:bg-[#FDE047] text-[#090A0E] text-xs font-extrabold shadow-[0_0_14px_rgba(250,204,21,0.35)] cursor-pointer transition-all whitespace-nowrap"
               >
                 <Wand2 className="w-3.5 h-3.5" />
                 <span>Separar Pista (IA)</span>
@@ -380,18 +380,18 @@ export const LibraryPanel: React.FC<LibraryPanelProps> = ({
             </div>
 
             {/* Table Header */}
-            <div className="grid grid-cols-12 gap-2 px-4 py-2 text-[10px] font-bold tracking-wider uppercase text-slate-500 border-b border-white/5 bg-[#0A0C12] shrink-0">
+            <div className="grid grid-cols-12 gap-2 px-4 py-2 text-[10px] font-bold tracking-wider uppercase text-slate-400 border-b border-white/10 bg-[#0A0B0F] shrink-0">
               <div className="col-span-7 sm:col-span-8">Nombre</div>
               <div className="col-span-2 sm:col-span-1 text-center">Letra IA</div>
               <div className="col-span-3 text-right">Acciones</div>
             </div>
 
             {/* Tracks List */}
-            <div className="flex-1 overflow-y-auto divide-y divide-white/5">
+            <div className="flex-1 overflow-y-auto divide-y divide-white/5 bg-[#0C0D12]">
               {visibleTracks.length === 0 ? (
                 <div className="h-full flex flex-col items-center justify-center p-6 text-center">
-                  <div className="w-11 h-11 rounded-full bg-[#151926] border border-white/10 flex items-center justify-center mb-3">
-                    <Music className="w-5 h-5 text-[#F4256A]" />
+                  <div className="w-11 h-11 rounded-full bg-[#141720] border-2 border-[#FACC15]/70 flex items-center justify-center mb-3">
+                    <Music className="w-5 h-5 text-[#EC287B]" />
                   </div>
                   <p className="text-sm font-bold text-white">
                     Tu biblioteca está vacía — lista para armar tu show
@@ -403,7 +403,7 @@ export const LibraryPanel: React.FC<LibraryPanelProps> = ({
                     <button
                       type="button"
                       onClick={() => fileInputRef.current?.click()}
-                      className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-[#F4256A] hover:bg-[#FF3478] text-white text-xs font-bold cursor-pointer transition-colors"
+                      className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-[#EC287B] hover:bg-[#F43F8E] text-white text-xs font-extrabold cursor-pointer transition-colors shadow-[0_0_14px_rgba(236,40,123,0.4)]"
                     >
                       <Upload className="w-3.5 h-3.5" />
                       <span>Subir Música Local</span>
@@ -411,9 +411,9 @@ export const LibraryPanel: React.FC<LibraryPanelProps> = ({
                     <button
                       type="button"
                       onClick={() => folderInputRef.current?.click()}
-                      className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-[#161B28] hover:bg-[#1E2536] border border-white/15 text-slate-200 text-xs font-semibold cursor-pointer transition-colors"
+                      className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-[#141720] hover:bg-[#1C212E] border border-[#22D3EE]/60 text-[#22D3EE] text-xs font-bold cursor-pointer transition-colors"
                     >
-                      <FolderPlus className="w-3.5 h-3.5 text-cyan-400" />
+                      <FolderPlus className="w-3.5 h-3.5 text-[#FACC15]" />
                       <span>Cargar Carpeta Completa</span>
                     </button>
                   </div>
@@ -462,7 +462,7 @@ export const LibraryPanel: React.FC<LibraryPanelProps> = ({
                       <button
                         type="button"
                         onClick={() => onLoadToDeck(track, 'A')}
-                        className="w-7 h-7 rounded bg-blue-600/20 hover:bg-blue-600 border border-blue-500/40 text-blue-400 hover:text-white text-xs font-bold flex items-center justify-center transition-colors cursor-pointer"
+                        className="w-7 h-7 rounded bg-[#0A0B0F] hover:bg-[#22D3EE] border border-[#22D3EE]/70 text-[#22D3EE] hover:text-[#090A0E] text-xs font-extrabold flex items-center justify-center transition-colors cursor-pointer"
                         title="Cargar en Deck A"
                       >
                         A
@@ -471,7 +471,7 @@ export const LibraryPanel: React.FC<LibraryPanelProps> = ({
                       <button
                         type="button"
                         onClick={() => onLoadToDeck(track, 'B')}
-                        className="w-7 h-7 rounded bg-[#F4256A]/20 hover:bg-[#F4256A] border border-[#F4256A]/40 text-[#F4256A] hover:text-white text-xs font-bold flex items-center justify-center transition-colors cursor-pointer"
+                        className="w-7 h-7 rounded bg-[#0A0B0F] hover:bg-[#EC287B] border border-[#EC287B]/70 text-[#EC287B] hover:text-white text-xs font-extrabold flex items-center justify-center transition-colors cursor-pointer"
                         title="Cargar en Deck B"
                       >
                         B
@@ -480,7 +480,7 @@ export const LibraryPanel: React.FC<LibraryPanelProps> = ({
                       <button
                         type="button"
                         onClick={() => onDeleteTrack(track.id)}
-                        className="w-7 h-7 rounded bg-[#141824] hover:bg-red-600/25 border border-white/10 hover:border-red-500/50 text-slate-400 hover:text-red-400 flex items-center justify-center transition-colors cursor-pointer"
+                        className="w-7 h-7 rounded bg-[#141720] hover:bg-red-600/25 border border-white/10 hover:border-red-500/50 text-slate-400 hover:text-red-400 flex items-center justify-center transition-colors cursor-pointer"
                         title="Eliminar pista"
                       >
                         <Trash2 className="w-3.5 h-3.5" />
@@ -493,15 +493,15 @@ export const LibraryPanel: React.FC<LibraryPanelProps> = ({
           </>
         ) : (
           /* YOUTUBE KARAOKE SEARCH VIEW */
-          <div className="flex-1 flex flex-col min-h-0">
-            <div className="p-3.5 border-b border-white/10 bg-[#0D1018] flex flex-col gap-2.5">
-              <p className="font-display text-sm font-bold text-white leading-none">
+          <div className="flex-1 flex flex-col min-h-0 bg-[#0C0D12]">
+            <div className="p-3.5 border-b border-white/10 bg-[#101218] flex flex-col gap-2.5">
+              <p className="font-display text-sm font-extrabold text-[#FACC15] leading-none">
                 Buscador de Karaoke
               </p>
 
               <form onSubmit={handleYoutubeSubmit} className="flex items-center gap-2">
-                <div className="flex-1 min-w-0 flex items-center gap-2 pl-3 pr-1.5 py-1 rounded-md bg-[#121622] border border-white/15 focus-within:border-[#F4256A]/70 transition-colors">
-                  <Search className="w-4 h-4 text-slate-400 shrink-0" />
+                <div className="flex-1 min-w-0 flex items-center gap-2 pl-3 pr-1.5 py-1 rounded-md bg-[#0A0B0F] border border-white/15 focus-within:border-[#22D3EE] transition-colors">
+                  <Search className="w-4 h-4 text-[#22D3EE] shrink-0" />
                   <input
                     type="text"
                     value={ytQuery}
@@ -520,10 +520,10 @@ export const LibraryPanel: React.FC<LibraryPanelProps> = ({
                         runYoutubeSearch(ytQuery, next);
                       }
                     }}
-                    className={`shrink-0 inline-flex items-center gap-1.5 px-2.5 py-1 rounded border text-xs font-medium transition-colors cursor-pointer select-none ${
+                    className={`shrink-0 inline-flex items-center gap-1.5 px-2.5 py-1 rounded border text-xs font-bold transition-colors cursor-pointer select-none ${
                       karaokeOnly
-                        ? 'bg-[#1A1D28] border-white/15 text-slate-100'
-                        : 'bg-[#141720] border-white/10 text-slate-400 hover:text-slate-200'
+                        ? 'bg-[#141720] border-[#FACC15]/70 text-[#FACC15]'
+                        : 'bg-[#101218] border-white/10 text-slate-400 hover:text-slate-200'
                     }`}
                     title={
                       karaokeOnly
@@ -534,8 +534,8 @@ export const LibraryPanel: React.FC<LibraryPanelProps> = ({
                     <span
                       className={`w-4 h-4 rounded-[4px] flex items-center justify-center transition-colors ${
                         karaokeOnly
-                          ? 'bg-[#F4256A] text-white'
-                          : 'bg-[#0B0D14] border border-slate-500/70 text-transparent'
+                          ? 'bg-[#EC287B] text-white'
+                          : 'bg-[#0A0B0F] border border-slate-500/70 text-transparent'
                       }`}
                     >
                       <Check className="w-3 h-3 stroke-[3]" />
@@ -547,7 +547,7 @@ export const LibraryPanel: React.FC<LibraryPanelProps> = ({
                 <button
                   type="submit"
                   disabled={ytLoading}
-                  className="px-4 py-2 rounded-md bg-[#DC2626] hover:bg-[#EF4444] disabled:opacity-60 text-white text-xs sm:text-sm font-bold flex items-center gap-1.5 cursor-pointer whitespace-nowrap transition-colors"
+                  className="px-4 py-2 rounded-md bg-[#EC287B] hover:bg-[#F43F8E] disabled:opacity-60 text-white text-xs sm:text-sm font-extrabold flex items-center gap-1.5 cursor-pointer whitespace-nowrap transition-colors shadow-[0_0_12px_rgba(236,40,123,0.35)]"
                 >
                   {ytLoading ? (
                     <Loader2 className="w-4 h-4 animate-spin" />
@@ -567,7 +567,7 @@ export const LibraryPanel: React.FC<LibraryPanelProps> = ({
                       setYtQuery(q);
                       runYoutubeSearch(q, karaokeOnly);
                     }}
-                    className="px-2.5 py-1 rounded bg-[#141824] hover:bg-[#1E2436] border border-white/10 text-[11px] text-slate-300 hover:text-white whitespace-nowrap cursor-pointer"
+                    className="px-2.5 py-1 rounded bg-[#0A0B0F] hover:bg-[#181B25] border border-white/15 hover:border-[#22D3EE]/60 text-[11px] font-semibold text-slate-200 hover:text-[#22D3EE] whitespace-nowrap cursor-pointer transition-colors"
                   >
                     {q}
                   </button>
@@ -584,7 +584,7 @@ export const LibraryPanel: React.FC<LibraryPanelProps> = ({
 
               {ytLoading ? (
                 <div className="h-44 flex items-center justify-center gap-2 text-xs text-slate-400">
-                  <Loader2 className="w-4 h-4 animate-spin text-red-400" />
+                  <Loader2 className="w-4 h-4 animate-spin text-[#EC287B]" />
                   <span>
                     {karaokeOnly
                       ? 'Buscando solo karaokes en YouTube...'
@@ -593,7 +593,7 @@ export const LibraryPanel: React.FC<LibraryPanelProps> = ({
                 </div>
               ) : displayedYtResults.length === 0 ? (
                 <div className="h-48 flex flex-col items-center justify-center text-center p-6">
-                  <Sparkles className="w-7 h-7 text-red-400 mb-2" />
+                  <Sparkles className="w-7 h-7 text-[#FACC15] mb-2" />
                   <p className="text-sm font-medium text-slate-200">
                     Busca cualquier canción en YouTube
                   </p>
@@ -607,7 +607,7 @@ export const LibraryPanel: React.FC<LibraryPanelProps> = ({
                   {displayedYtResults.map((vid) => (
                     <div
                       key={vid.videoId}
-                      className="rounded-lg border border-white/10 bg-[#10131C] overflow-hidden flex flex-col"
+                      className="rounded-lg border border-white/15 bg-[#101218] overflow-hidden flex flex-col"
                     >
                       <div className="relative aspect-video bg-black">
                         <img
@@ -616,7 +616,7 @@ export const LibraryPanel: React.FC<LibraryPanelProps> = ({
                           referrerPolicy="no-referrer"
                           className="w-full h-full object-cover"
                         />
-                        <span className="absolute bottom-1.5 right-1.5 px-1.5 py-0.5 rounded bg-black/80 text-[10px] font-mono-tabular text-white">
+                        <span className="absolute bottom-1.5 right-1.5 px-1.5 py-0.5 rounded bg-black/85 border border-[#FACC15]/40 text-[10px] font-mono-tabular text-[#FACC15]">
                           {vid.duration}
                         </span>
                       </div>
@@ -633,14 +633,14 @@ export const LibraryPanel: React.FC<LibraryPanelProps> = ({
                           <button
                             type="button"
                             onClick={() => onLoadYoutubeToDeck(vid, 'A')}
-                            className="py-1 rounded bg-blue-600/25 hover:bg-blue-600 border border-blue-500/40 text-blue-300 hover:text-white text-[11px] font-bold cursor-pointer transition-colors"
+                            className="py-1 rounded bg-[#0A0B0F] hover:bg-[#22D3EE] border border-[#22D3EE]/70 text-[#22D3EE] hover:text-[#090A0E] text-[11px] font-extrabold cursor-pointer transition-colors"
                           >
                             Deck A
                           </button>
                           <button
                             type="button"
                             onClick={() => onLoadYoutubeToDeck(vid, 'B')}
-                            className="py-1 rounded bg-[#F4256A]/25 hover:bg-[#F4256A] border border-[#F4256A]/40 text-[#F973A2] hover:text-white text-[11px] font-bold cursor-pointer transition-colors"
+                            className="py-1 rounded bg-[#0A0B0F] hover:bg-[#EC287B] border border-[#EC287B]/70 text-[#EC287B] hover:text-white text-[11px] font-extrabold cursor-pointer transition-colors"
                           >
                             Deck B
                           </button>

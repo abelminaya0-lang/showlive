@@ -165,6 +165,9 @@ interface DeckGraph {
 class ShowLiveAudioEngine {
   private ctx: AudioContext | null = null;
   private masterLimiter: DynamicsCompressorNode | null = null;
+  private masterAnalyser: AnalyserNode | null = null;
+  private masterFreqData: Uint8Array<ArrayBuffer> = new Uint8Array(new ArrayBuffer(256));
+  private silentMasterBins: Uint8Array<ArrayBuffer> = new Uint8Array(new ArrayBuffer(256));
   private samplerGain: GainNode | null = null;
   private decks: Record<DeckId, DeckGraph | null> = { A: null, B: null };
   private fxBufferCache = new Map<string, AudioBuffer>();
@@ -182,7 +185,16 @@ class ShowLiveAudioEngine {
       this.masterLimiter.ratio.value = 8;
       this.masterLimiter.attack.value = 0.003;
       this.masterLimiter.release.value = 0.15;
-      this.masterLimiter.connect(this.ctx.destination);
+
+      this.masterAnalyser = this.ctx.createAnalyser();
+      this.masterAnalyser.fftSize = 512;
+      this.masterAnalyser.smoothingTimeConstant = 0.74;
+      this.masterFreqData = new Uint8Array(
+        new ArrayBuffer(this.masterAnalyser.frequencyBinCount)
+      );
+
+      this.masterLimiter.connect(this.masterAnalyser);
+      this.masterAnalyser.connect(this.ctx.destination);
 
       this.samplerGain = this.ctx.createGain();
       this.samplerGain.gain.value = 0.95;
@@ -428,6 +440,81 @@ class ShowLiveAudioEngine {
     }
     const level = Math.min(1, sum / (len * 180));
     return { bins: graph.freqData, level };
+  }
+
+  public getMasterSpectrumData(): {
+    bins: Uint8Array;
+    bass: number;
+    mid: number;
+    treble: number;
+    peak: number;
+    sampleRate: number;
+    isActive: boolean;
+  } {
+    if (!this.masterAnalyser || !this.ctx) {
+      return {
+        bins: this.silentMasterBins,
+        bass: 0,
+        mid: 0,
+        treble: 0,
+        peak: 0,
+        sampleRate: 48000,
+        isActive: false,
+      };
+    }
+
+    this.masterAnalyser.getByteFrequencyData(this.masterFreqData);
+    const data = this.masterFreqData;
+    const binCount = data.length;
+    const sampleRate = this.ctx.sampleRate || 48000;
+    const binHz = sampleRate / this.masterAnalyser.fftSize;
+
+    const bassStart = Math.max(0, Math.floor(20 / binHz));
+    const bassEnd = Math.max(bassStart + 1, Math.min(binCount - 1, Math.ceil(250 / binHz)));
+    const midEnd = Math.max(bassEnd + 1, Math.min(binCount - 1, Math.ceil(2500 / binHz)));
+    const trebleEnd = Math.max(midEnd + 1, Math.min(binCount - 1, Math.ceil(16000 / binHz)));
+
+    let bassSum = 0;
+    let bassMax = 0;
+    for (let i = bassStart; i <= bassEnd; i++) {
+      const v = data[i];
+      bassSum += v;
+      if (v > bassMax) bassMax = v;
+    }
+    const bassAvg = bassSum / ((bassEnd - bassStart + 1) * 255);
+    const bass = Math.min(1, bassAvg * 0.65 + (bassMax / 255) * 0.35);
+
+    let midSum = 0;
+    let midMax = 0;
+    for (let i = bassEnd + 1; i <= midEnd; i++) {
+      const v = data[i];
+      midSum += v;
+      if (v > midMax) midMax = v;
+    }
+    const midAvg = midSum / (Math.max(1, midEnd - bassEnd) * 255);
+    const mid = Math.min(1, midAvg * 0.72 + (midMax / 255) * 0.38);
+
+    let trebleSum = 0;
+    let trebleMax = 0;
+    for (let i = midEnd + 1; i <= trebleEnd; i++) {
+      const v = data[i];
+      trebleSum += v;
+      if (v > trebleMax) trebleMax = v;
+    }
+    const trebleAvg = trebleSum / (Math.max(1, trebleEnd - midEnd) * 255);
+    const treble = Math.min(1, trebleAvg * 0.9 + (trebleMax / 255) * 0.48);
+
+    const peak = Math.max(bassMax, midMax, trebleMax) / 255;
+
+    return {
+      bins: data,
+      bass,
+      mid,
+      treble,
+      peak,
+      sampleRate,
+      isActive: true,
+    };
   }
 
   // --- ZERO-LATENCY SAMPLER ENGINE ---

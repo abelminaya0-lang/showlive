@@ -5,12 +5,18 @@
     --font-display: 'Plus Jakarta Sans', system-ui, sans-serif;
     --font-sans: 'DM Sans', system-ui, sans-serif;
     --font-mono: 'JetBrains Mono', ui-monospace, SFMono-Regular, monospace;
+    --studio-bg: #0a0b0f;
+    --studio-panel: #101218;
+    --studio-bay: #151821;
+    --accent-yellow: #facc15;
+    --accent-pink: #ec287b;
+    --accent-cyan: #22d3ee;
   }
 
   body {
     font-family: var(--font-sans);
-    background-color: #090b10;
-    color: #f1f5f9;
+    background-color: #0a0b0f;
+    color: #f8fafc;
     overflow-x: hidden;
   }
 
@@ -24,6 +30,18 @@
   }
 }
 
+.studio-wave-grid {
+  background-color: #07090d;
+  background-image:
+    linear-gradient(to right, rgba(34, 211, 238, 0.06) 1px, transparent 1px),
+    linear-gradient(to bottom, rgba(34, 211, 238, 0.06) 1px, transparent 1px);
+  background-size: 28px 24px;
+}
+
+.studio-tricolor-bar {
+  background: linear-gradient(90deg, #facc15 0%, #ec287b 50%, #22d3ee 100%);
+}
+
 /* Custom sleek dark studio scrollbars */
 ::-webkit-scrollbar {
   width: 6px;
@@ -31,16 +49,16 @@
 }
 
 ::-webkit-scrollbar-track {
-  background: #0b0d13;
+  background: #0a0b0f;
 }
 
 ::-webkit-scrollbar-thumb {
-  background: #232838;
+  background: #272b3a;
   border-radius: 3px;
 }
 
 ::-webkit-scrollbar-thumb:hover {
-  background: #374151;
+  background: #22d3ee;
 }
 
 /* Custom vertical/horizontal fader styling */
@@ -54,8 +72,8 @@ input[type='range'].studio-fader-h {
 input[type='range'].studio-fader-h::-webkit-slider-runnable-track {
   height: 4px;
   border-radius: 999px;
-  background: #1e2330;
-  border: 1px solid #2c3345;
+  background: #1a1d28;
+  border: 1px solid #2d3346;
 }
 
 input[type='range'].studio-fader-h::-webkit-slider-thumb {
@@ -64,8 +82,8 @@ input[type='range'].studio-fader-h::-webkit-slider-thumb {
   width: 14px;
   height: 24px;
   border-radius: 3px;
-  background: linear-gradient(180deg, #f8fafc 0%, #cbd5e1 100%);
-  border: 1px solid #475569;
+  background: linear-gradient(180deg, #facc15 0%, #eab308 100%);
+  border: 1px solid #090a0e;
   margin-top: -11px;
-  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.7);
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.75);
 }

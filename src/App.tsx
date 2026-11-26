@@ -167,6 +167,18 @@ export default function App() {
   const hydratedUidRef = useRef<string | null>(null);
   const loggedEntryForUidRef = useRef<string | null>(null);
   const cloudSaveTimerRef = useRef<number | null>(null);
+  const tracksRef = useRef(tracks);
+  tracksRef.current = tracks;
+  const selectedPlaylistIdRef = useRef(selectedPlaylistId);
+  selectedPlaylistIdRef.current = selectedPlaylistId;
+  const deckARef = useRef(deckA);
+  deckARef.current = deckA;
+  const deckBRef = useRef(deckB);
+  deckBRef.current = deckB;
+  const mixerRef = useRef(mixer);
+  mixerRef.current = mixer;
+  const aiConfigRef = useRef(aiConfig);
+  aiConfigRef.current = aiConfig;
 
   const clientSuspended = Boolean(clientRecord && !clientRecord.active);
   const isAuthorized = Boolean(
@@ -716,25 +728,109 @@ export default function App() {
       currentTime: 0,
       duration: readyTrack.durationSec,
       cuePoint: 0,
-      showLyricsOverlay: aiConfig.autoSyncLyrics && readyTrack.hasAiLyrics,
+      showLyricsOverlay: aiConfigRef.current.autoSyncLyrics && readyTrack.hasAiLyrics,
     }));
+    if (mixerRef.current.autoMixEnabled) {
+      ensureOppositeDeckQueued(deckId, readyTrack, false);
+    }
     showToast(`Cargado en Deck ${deckId}: ${readyTrack.name}`);
   };
+
+  const getAutoMixPool = useCallback(
+    (
+      referenceTrack?: TrackItem | null,
+      overridePlaylistId?: string | null,
+      overrideTracks?: TrackItem[]
+    ): TrackItem[] => {
+      const allTracks = overrideTracks ?? tracksRef.current;
+      const plId =
+        overridePlaylistId !== undefined
+          ? overridePlaylistId
+          : selectedPlaylistIdRef.current ?? referenceTrack?.playlistIds?.[0] ?? null;
+      if (plId) {
+        const folderTracks = allTracks.filter((t) => t.playlistIds.includes(plId));
+        if (folderTracks.length > 0) return folderTracks;
+      }
+      return allTracks;
+    },
+    []
+  );
+
+  const pickNextTrackFromPool = useCallback(
+    (pool: TrackItem[], currentTrack?: TrackItem | null): TrackItem | null => {
+      if (pool.length === 0) return null;
+      const currentIdx = currentTrack
+        ? pool.findIndex((t) => t.id === currentTrack.id)
+        : -1;
+      const nextIdx = (currentIdx + 1) % pool.length;
+      return pool[nextIdx] || null;
+    },
+    []
+  );
+
+  const loadPoolTrackToDeck = useCallback(
+    async (deckId: DeckId, track: TrackItem, autoPlay: boolean) => {
+      deckConsumedRef.current[deckId] = false;
+      const ready = await resolveTrackMediaUrl(track);
+      setDeck(deckId, (prev) => ({
+        ...prev,
+        source: 'local',
+        track: ready,
+        isPlaying: autoPlay,
+        currentTime: 0,
+        duration: ready.durationSec,
+        cuePoint: 0,
+        showLyricsOverlay: aiConfigRef.current.autoSyncLyrics && ready.hasAiLyrics,
+      }));
+    },
+    [resolveTrackMediaUrl]
+  );
+
+  const ensureOppositeDeckQueued = useCallback(
+    async (
+      activeDeckId: DeckId,
+      activeTrack?: TrackItem | null,
+      forceReplace = false,
+      overridePlaylistId?: string | null,
+      overrideTracks?: TrackItem[]
+    ) => {
+      const otherDeckId: DeckId = activeDeckId === 'A' ? 'B' : 'A';
+      const otherDeck = otherDeckId === 'A' ? deckARef.current : deckBRef.current;
+      if (!forceReplace && otherDeck.isPlaying) return;
+
+      const isOtherEmptyOrDone =
+        forceReplace ||
+        (!otherDeck.track && !otherDeck.youtubeId) ||
+        (otherDeck.source === 'local' && deckConsumedRef.current[otherDeckId]);
+
+      if (!isOtherEmptyOrDone) return;
+
+      const pool = getAutoMixPool(activeTrack, overridePlaylistId, overrideTracks);
+      const nextTrack = pickNextTrackFromPool(pool, activeTrack);
+      if (!nextTrack) return;
+
+      await loadPoolTrackToDeck(otherDeckId, nextTrack, false);
+    },
+    [getAutoMixPool, loadPoolTrackToDeck, pickNextTrackFromPool]
+  );
 
   // Transport Controls
   const handleTogglePlay = (deckId: DeckId) => {
     audioEngine.resume();
-    setDeck(deckId, (prev) => {
-      if (prev.source === 'local' && !prev.track) {
-        showToast(`Carga una pista primero en Deck ${deckId}`);
-        return prev;
-      }
-      if (prev.source === 'youtube' && !prev.youtubeId) {
-        showToast(`Carga un video YouTube en Deck ${deckId}`);
-        return prev;
-      }
-      return { ...prev, isPlaying: !prev.isPlaying };
-    });
+    const currentDeck = deckId === 'A' ? deckARef.current : deckBRef.current;
+    if (currentDeck.source === 'local' && !currentDeck.track) {
+      showToast(`Carga una pista primero en Deck ${deckId}`);
+      return;
+    }
+    if (currentDeck.source === 'youtube' && !currentDeck.youtubeId) {
+      showToast(`Carga un video YouTube en Deck ${deckId}`);
+      return;
+    }
+    const willPlay = !currentDeck.isPlaying;
+    setDeck(deckId, (prev) => ({ ...prev, isPlaying: !prev.isPlaying }));
+    if (willPlay && mixerRef.current.autoMixEnabled && currentDeck.source === 'local') {
+      ensureOppositeDeckQueued(deckId, currentDeck.track, false);
+    }
   };
 
   const handleCue = (deckId: DeckId) => {
@@ -759,22 +855,16 @@ export default function App() {
     (fromDeckId: DeckId) => {
       if (autoTransitionDeckRef.current === fromDeckId) return;
       const toDeckId: DeckId = fromDeckId === 'A' ? 'B' : 'A';
-      const fromDeck = fromDeckId === 'A' ? deckA : deckB;
-      const toDeck = toDeckId === 'A' ? deckA : deckB;
+      const fromDeck = fromDeckId === 'A' ? deckARef.current : deckBRef.current;
+      const toDeck = toDeckId === 'A' ? deckARef.current : deckBRef.current;
 
-      // Determine target track if toDeck has none loaded or already finished previously
-      const pool = selectedPlaylistId
-        ? tracks.filter((t) => t.playlistIds.includes(selectedPlaylistId))
-        : tracks;
+      const pool = getAutoMixPool(fromDeck.track);
       let nextTrackToLoad: TrackItem | null = null;
       const shouldLoadFromPool =
         (!toDeck.track && !toDeck.youtubeId) ||
         (toDeck.source === 'local' && deckConsumedRef.current[toDeckId] && pool.length > 0);
       if (shouldLoadFromPool && pool.length > 0) {
-        const currentIdx = fromDeck.track
-          ? pool.findIndex((t) => t.id === fromDeck.track?.id)
-          : -1;
-        nextTrackToLoad = pool[(currentIdx + 1) % pool.length];
+        nextTrackToLoad = pickNextTrackFromPool(pool, fromDeck.track);
       }
 
       if (!toDeck.track && !toDeck.youtubeId && !nextTrackToLoad) {
@@ -786,19 +876,10 @@ export default function App() {
       deckConsumedRef.current[toDeckId] = false;
       audioEngine.resume();
 
+      const activeTargetTrack = nextTrackToLoad || toDeck.track;
+
       if (nextTrackToLoad) {
-        resolveTrackMediaUrl(nextTrackToLoad).then((ready) => {
-          setDeck(toDeckId, (prev) => ({
-            ...prev,
-            source: 'local',
-            track: ready,
-            isPlaying: true,
-            currentTime: 0,
-            duration: ready.durationSec,
-            cuePoint: 0,
-            showLyricsOverlay: aiConfig.autoSyncLyrics && ready.hasAiLyrics,
-          }));
-        });
+        loadPoolTrackToDeck(toDeckId, nextTrackToLoad, true);
       } else {
         setDeck(toDeckId, (prev) => ({ ...prev, isPlaying: true }));
       }
@@ -810,7 +891,7 @@ export default function App() {
       }
 
       const targetSide = toDeckId === 'B' ? 1 : -1;
-      const startVal = mixer.crossfader;
+      const startVal = mixerRef.current.crossfader;
       const steps = 45;
       let step = 0;
 
@@ -827,20 +908,22 @@ export default function App() {
             window.clearInterval(autoMixTimerRef.current);
             autoMixTimerRef.current = null;
           }
-          setDeck(fromDeckId, (prev) => ({ ...prev, isPlaying: false }));
+          setDeck(fromDeckId, (prev) => ({ ...prev, isPlaying: false, currentTime: 0 }));
           autoTransitionDeckRef.current = null;
+
+          // Auto-load the next song from the active folder onto the now-idle opposite deck
+          if (mixerRef.current.autoMixEnabled && activeTargetTrack) {
+            ensureOppositeDeckQueued(toDeckId, activeTargetTrack, true);
+          }
         }
       }, 75);
     },
     [
-      aiConfig.autoSyncLyrics,
-      deckA,
-      deckB,
-      mixer.crossfader,
-      resolveTrackMediaUrl,
-      selectedPlaylistId,
+      ensureOppositeDeckQueued,
+      getAutoMixPool,
+      loadPoolTrackToDeck,
+      pickNextTrackFromPool,
       showToast,
-      tracks,
     ]
   );
 
@@ -851,9 +934,9 @@ export default function App() {
       duration: duration > 0 ? duration : prev.duration,
     }));
 
-    const activeDeck = deckId === 'A' ? deckA : deckB;
+    const activeDeck = deckId === 'A' ? deckARef.current : deckBRef.current;
     if (
-      mixer.autoMixEnabled &&
+      mixerRef.current.autoMixEnabled &&
       activeDeck.isPlaying &&
       duration > 8 &&
       duration - currentTime <= 5 &&
@@ -865,7 +948,7 @@ export default function App() {
 
   const handleEnded = (deckId: DeckId) => {
     setDeck(deckId, (prev) => ({ ...prev, isPlaying: false, currentTime: 0 }));
-    if (mixer.autoMixEnabled && autoTransitionDeckRef.current !== deckId) {
+    if (mixerRef.current.autoMixEnabled && autoTransitionDeckRef.current !== deckId) {
       triggerAutoMixTransition(deckId);
     }
   };
@@ -929,31 +1012,71 @@ export default function App() {
 
   const handleToggleAutoMix = () => {
     audioEngine.resume();
-    setMixer((prev) => {
-      const nextEnabled = !prev.autoMixEnabled;
-      if (!nextEnabled && autoMixTimerRef.current) {
-        window.clearInterval(autoMixTimerRef.current);
-        autoMixTimerRef.current = null;
-        autoTransitionDeckRef.current = null;
+    const nextEnabled = !mixerRef.current.autoMixEnabled;
+
+    if (!nextEnabled && autoMixTimerRef.current) {
+      window.clearInterval(autoMixTimerRef.current);
+      autoMixTimerRef.current = null;
+      autoTransitionDeckRef.current = null;
+    }
+
+    const dA = deckARef.current;
+    const dB = deckBRef.current;
+    const bothEmpty =
+      !dA.track && !dA.youtubeId && !dB.track && !dB.youtubeId;
+    const pool = getAutoMixPool(dA.track || dB.track);
+
+    setMixer((prev) => ({
+      ...prev,
+      autoMixEnabled: nextEnabled,
+      ...(nextEnabled && bothEmpty && pool.length > 0 ? { crossfader: -1 } : {}),
+    }));
+
+    if (nextEnabled) {
+      if (dA.isPlaying && dA.source === 'local') {
+        ensureOppositeDeckQueued('A', dA.track, false);
+      } else if (dB.isPlaying && dB.source === 'local') {
+        ensureOppositeDeckQueued('B', dB.track, false);
+      } else if (dA.track && !dB.track && !dB.youtubeId) {
+        ensureOppositeDeckQueued('A', dA.track, false);
+      } else if (dB.track && !dA.track && !dA.youtubeId) {
+        ensureOppositeDeckQueued('B', dB.track, false);
+      } else if (bothEmpty && pool.length > 0) {
+        loadPoolTrackToDeck('A', pool[0], true);
+        if (pool.length > 1) {
+          loadPoolTrackToDeck('B', pool[1], false);
+        }
       }
-      showToast(
-        nextEnabled
-          ? 'AutoMix activado: al terminar una canción pasará al otro Deck'
-          : 'AutoMix desactivado'
-      );
-      return { ...prev, autoMixEnabled: nextEnabled };
-    });
+    }
+
+    showToast(
+      nextEnabled
+        ? 'AutoMix activado: leerá y cargará la siguiente canción de la carpeta automáticamente'
+        : 'AutoMix desactivado'
+    );
   };
 
   const handleManualCrossfadeNow = () => {
+    const dA = deckARef.current;
+    const dB = deckBRef.current;
     const fromDeckId: DeckId =
-      mixer.crossfader <= 0 && (deckA.isPlaying || deckA.track) ? 'A' : 'B';
+      dA.isPlaying && !dB.isPlaying
+        ? 'A'
+        : dB.isPlaying && !dA.isPlaying
+        ? 'B'
+        : mixerRef.current.crossfader <= 0 && (dA.track || dA.youtubeId)
+        ? 'A'
+        : 'B';
     triggerAutoMixTransition(fromDeckId);
   };
 
   // File, Folder & .djlurivera Import (batched IndexedDB + parallel metadata)
   const handleImportFiles = async (fileList: FileList) => {
-    const files = Array.from(fileList);
+    const files = Array.from(fileList).sort((a, b) => {
+      const pathA = ((a as any).webkitRelativePath as string) || a.name;
+      const pathB = ((b as any).webkitRelativePath as string) || b.name;
+      return pathA.localeCompare(pathB, undefined, { numeric: true, sensitivity: 'base' });
+    });
     const createdPlaylists: Playlist[] = [];
     const playlistMap = new Map(playlists.map((p) => [p.name.toLowerCase(), p.id]));
     const mediaToPrepare: Array<{
@@ -1013,9 +1136,13 @@ export default function App() {
       mediaToPrepare.push({ file, trackId, isVideo, targetPlaylistIds });
     }
 
+    const activeImportedPlaylistId =
+      createdPlaylists[0]?.id || mediaToPrepare[0]?.targetPlaylistIds?.[0] || null;
+
     if (createdPlaylists.length > 0) {
       setPlaylists((prev) => [...prev, ...createdPlaylists]);
       setSelectedPlaylistId(createdPlaylists[0].id);
+      selectedPlaylistIdRef.current = createdPlaylists[0].id;
     }
 
     if (mediaToPrepare.length > 0) {
@@ -1056,8 +1183,47 @@ export default function App() {
         })
       );
 
-      setTracks((prev) => [...addedTracks, ...prev]);
-      showToast(`${addedTracks.length} pista(s) guardada(s) localmente`);
+      const nextTracks = [...addedTracks, ...tracksRef.current];
+      tracksRef.current = nextTracks;
+      setTracks(nextTracks);
+
+      // If AutoMix is active when uploading a folder/tracks, auto-start & queue Deck A / B
+      if (mixerRef.current.autoMixEnabled && addedTracks.length > 0) {
+        const dA = deckARef.current;
+        const dB = deckBRef.current;
+
+        if (!dA.isPlaying && !dB.isPlaying) {
+          audioEngine.resume();
+          setMixer((prev) => ({ ...prev, crossfader: -1 }));
+          await loadPoolTrackToDeck('A', addedTracks[0], true);
+          if (addedTracks.length > 1) {
+            await loadPoolTrackToDeck('B', addedTracks[1], false);
+            showToast(
+              `AutoMix activo: "${addedTracks[0].name}" en Deck A y siguiente en Deck B`
+            );
+          } else {
+            showToast(`AutoMix activo: reproduciendo "${addedTracks[0].name}" en Deck A`);
+          }
+        } else if (dA.isPlaying && !dB.isPlaying) {
+          await loadPoolTrackToDeck('B', addedTracks[0], false);
+          showToast(
+            `Carpeta lista: "${addedTracks[0].name}" cargada en Deck B para AutoMix`
+          );
+        } else if (dB.isPlaying && !dA.isPlaying) {
+          await loadPoolTrackToDeck('A', addedTracks[0], false);
+          showToast(
+            `Carpeta lista: "${addedTracks[0].name}" cargada en Deck A para AutoMix`
+          );
+        } else {
+          showToast(`${addedTracks.length} pista(s) guardada(s) en la carpeta`);
+        }
+      } else if (activeImportedPlaylistId && createdPlaylists.length > 0) {
+        showToast(
+          `Carpeta "${createdPlaylists[0].name}" cargada (${addedTracks.length} pistas)`
+        );
+      } else {
+        showToast(`${addedTracks.length} pista(s) guardada(s) localmente`);
+      }
     }
   };
 
@@ -1437,7 +1603,7 @@ export default function App() {
         </div>
       }
     >
-      <div className="h-screen w-screen overflow-hidden bg-[#080A0F] text-slate-100 flex flex-col">
+      <div className="h-screen w-screen overflow-hidden bg-[#0A0B0F] text-slate-100 flex flex-col">
       <TopBar
         workspaceMode={workspaceMode}
         onChangeMode={setWorkspaceMode}
@@ -1460,9 +1626,11 @@ export default function App() {
       />
 
       {/* Mobile Compact Header (< lg) */}
-      <div className="lg:hidden flex items-center justify-between px-3 py-1.5 bg-[#0B1018] border-b border-white/10 shrink-0">
-        <span className="font-display text-xs font-extrabold tracking-tight text-white">
-          Show<span className="text-[#F4256A]">Live</span>
+      <div className="lg:hidden relative flex items-center justify-between px-3 py-1.5 bg-[#101218] border-b border-white/10 shrink-0">
+        <div className="studio-tricolor-bar absolute bottom-0 inset-x-0 h-[2px] opacity-85 pointer-events-none" />
+        <span className="font-display text-xs font-extrabold tracking-tight">
+          <span className="text-[#FACC15]">Show</span>
+          <span className="text-[#22D3EE]">Live</span>
         </span>
         <div className="flex items-center gap-2">
           {isAdmin && (
@@ -1473,7 +1641,7 @@ export default function App() {
                 setDeckB((p) => ({ ...p, isPlaying: false }));
                 setShowAdminDashboard(true);
               }}
-              className="px-2.5 py-1 rounded bg-emerald-500/20 border border-emerald-500/40 text-[11px] font-bold text-emerald-200 cursor-pointer shrink-0"
+              className="px-2.5 py-1 rounded bg-[#141720] border border-[#FACC15]/60 text-[11px] font-bold text-[#FACC15] cursor-pointer shrink-0"
             >
               Mi Dashboard
             </button>
@@ -1486,7 +1654,7 @@ export default function App() {
                 setAuthNotice(null);
                 setShowLoginScreen(true);
               }}
-              className="px-2.5 py-1 rounded bg-cyan-500/15 border border-cyan-400/50 text-[11px] font-bold text-cyan-200 cursor-pointer shrink-0"
+              className="px-2.5 py-1 rounded bg-[#141720] border border-[#22D3EE]/60 text-[11px] font-bold text-[#22D3EE] cursor-pointer shrink-0"
             >
               Iniciar sesión
             </button>
@@ -1494,7 +1662,7 @@ export default function App() {
             <button
               type="button"
               onClick={handleSignOut}
-              className="px-2.5 py-1 rounded bg-white/5 border border-white/10 text-[11px] font-semibold text-slate-300 cursor-pointer shrink-0"
+              className="px-2.5 py-1 rounded bg-[#141720] border border-[#EC287B]/50 text-[11px] font-semibold text-slate-200 cursor-pointer shrink-0"
             >
               Salir
             </button>
@@ -1729,10 +1897,10 @@ export default function App() {
         </section>
       </main>
 
-      {/* Mobile Bottom Navigation Bar (< lg) matching cellular reference */}
+      {/* Mobile Bottom Navigation Bar (< lg) */}
       <nav
         aria-label="Navegación móvil"
-        className="lg:hidden h-[58px] shrink-0 bg-[#0A0C12] border-t border-white/10 grid grid-cols-5 items-center px-1 select-none"
+        className="lg:hidden h-[58px] shrink-0 bg-[#101218] border-t border-white/15 grid grid-cols-5 items-center px-1 select-none"
       >
         <button
           type="button"
@@ -1742,13 +1910,13 @@ export default function App() {
           }}
           className={`flex flex-col items-center justify-center gap-0.5 py-1 rounded-xl transition-colors cursor-pointer ${
             workspaceMode !== 'pads' && mobileTab === 'decks'
-              ? 'text-[#F4256A]'
+              ? 'text-[#FACC15]'
               : 'text-slate-400 hover:text-slate-200'
           }`}
         >
           <span
             className={`px-3 py-1 rounded-xl ${
-              workspaceMode !== 'pads' && mobileTab === 'decks' ? 'bg-[#F4256A]/15' : ''
+              workspaceMode !== 'pads' && mobileTab === 'decks' ? 'bg-[#FACC15]/15 border border-[#FACC15]/50' : ''
             }`}
           >
             <Disc className="w-5 h-5" />
@@ -1764,13 +1932,13 @@ export default function App() {
           }}
           className={`flex flex-col items-center justify-center gap-0.5 py-1 rounded-xl transition-colors cursor-pointer ${
             workspaceMode !== 'pads' && mobileTab === 'library'
-              ? 'text-[#F4256A]'
+              ? 'text-[#22D3EE]'
               : 'text-slate-400 hover:text-slate-200'
           }`}
         >
           <span
             className={`px-3 py-1 rounded-xl ${
-              workspaceMode !== 'pads' && mobileTab === 'library' ? 'bg-[#F4256A]/15' : ''
+              workspaceMode !== 'pads' && mobileTab === 'library' ? 'bg-[#22D3EE]/15 border border-[#22D3EE]/50' : ''
             }`}
           >
             <Library className="w-5 h-5" />
@@ -1786,13 +1954,13 @@ export default function App() {
           }}
           className={`flex flex-col items-center justify-center gap-0.5 py-1 rounded-xl transition-colors cursor-pointer ${
             workspaceMode === 'pads' || mobileTab === 'sampler'
-              ? 'text-[#F4256A]'
+              ? 'text-[#EC287B]'
               : 'text-slate-400 hover:text-slate-200'
           }`}
         >
           <span
             className={`px-3 py-1 rounded-xl ${
-              workspaceMode === 'pads' || mobileTab === 'sampler' ? 'bg-[#F4256A]/15' : ''
+              workspaceMode === 'pads' || mobileTab === 'sampler' ? 'bg-[#EC287B]/15 border border-[#EC287B]/50' : ''
             }`}
           >
             <LayoutGrid className="w-5 h-5" />
@@ -1876,7 +2044,7 @@ export default function App() {
 
       {/* Subtle Bottom Toast */}
       {toastMsg && (
-        <div className="fixed bottom-16 lg:bottom-4 left-1/2 -translate-x-1/2 z-50 px-4 py-2 rounded-lg bg-[#141824]/95 border border-[#F4256A]/50 text-xs font-semibold text-white shadow-xl pointer-events-none">
+        <div className="fixed bottom-16 lg:bottom-4 left-1/2 -translate-x-1/2 z-50 px-4 py-2 rounded-lg bg-[#101218]/95 border border-[#FACC15]/75 text-xs font-bold text-[#FACC15] shadow-[0_0_16px_rgba(250,204,21,0.2)] pointer-events-none">
           {toastMsg}
         </div>
       )}

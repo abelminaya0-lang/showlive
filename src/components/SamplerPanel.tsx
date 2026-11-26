@@ -134,10 +134,10 @@ export const SamplerPanel: React.FC<SamplerPanelProps> = ({
         <button
           type="button"
           onClick={onToggleCollapse}
-          className="w-7 bg-[#0E111A] hover:bg-[#171C2A] border border-white/10 rounded-lg flex items-center justify-center cursor-pointer transition-colors"
+          className="w-7 bg-[#101218] hover:bg-[#181B25] border border-[#FACC15]/45 rounded-lg flex items-center justify-center cursor-pointer transition-colors"
           title="Abrir Sampler"
         >
-          <span className="[writing-mode:vertical-rl] rotate-180 text-[10px] font-bold tracking-widest uppercase text-slate-300">
+          <span className="[writing-mode:vertical-rl] rotate-180 text-[10px] font-extrabold tracking-widest uppercase text-[#FACC15]">
             ABRIR SAMPLER
           </span>
         </button>
@@ -184,16 +184,16 @@ export const SamplerPanel: React.FC<SamplerPanelProps> = ({
                 if (file) onDropAudioOnPad(pad.id, file);
               }}
               style={{
-                backgroundColor: isEmpty ? '#161A24' : pad.color,
+                backgroundColor: isEmpty ? '#0A0B0F' : pad.color,
               }}
               className={`relative rounded-md border transition-all flex flex-col items-center justify-center p-1 select-none cursor-pointer overflow-hidden ${
                 isFullPadsView ? 'min-h-[76px]' : 'h-12 sm:h-[52px]'
               } ${
                 isActive
-                  ? 'scale-95 ring-2 ring-white border-white shadow-[0_0_16px_rgba(255,255,255,0.45)]'
+                  ? 'scale-95 ring-2 ring-[#FACC15] border-[#FACC15] shadow-[0_0_16px_rgba(250,204,21,0.55)]'
                   : isEmpty
-                  ? 'border-white/5 hover:border-white/20 text-slate-500'
-                  : 'border-white/20 hover:brightness-110 shadow-md'
+                  ? 'border-white/10 hover:border-[#22D3EE]/50 text-slate-500'
+                  : 'border-white/25 hover:brightness-110 shadow-md'
               }`}
               title={
                 isEmpty
@@ -243,23 +243,23 @@ export const SamplerPanel: React.FC<SamplerPanelProps> = ({
         <button
           type="button"
           onClick={onToggleCollapse}
-          className="hidden lg:flex w-6 shrink-0 bg-[#0D1018] hover:bg-[#171C2A] border border-white/10 rounded-lg items-center justify-center cursor-pointer transition-colors"
+          className="hidden lg:flex w-6 shrink-0 bg-[#0A0B0F] hover:bg-[#181B25] border border-white/15 hover:border-[#FACC15]/50 rounded-lg items-center justify-center cursor-pointer transition-colors"
           title="Ocultar Sampler"
         >
-          <span className="[writing-mode:vertical-rl] rotate-180 text-[9px] font-bold tracking-widest uppercase text-slate-400 hover:text-white">
+          <span className="[writing-mode:vertical-rl] rotate-180 text-[9px] font-bold tracking-widest uppercase text-slate-400 hover:text-[#FACC15]">
             CERRAR SAMPLER
           </span>
         </button>
       )}
 
       {/* Main Sampler Chassis */}
-      <div className="flex-1 min-w-0 bg-[#0A0C12] border border-white/10 rounded-lg p-3 flex flex-col justify-between overflow-y-auto">
+      <div className="flex-1 min-w-0 bg-[#101218] border border-white/15 rounded-lg p-3 flex flex-col justify-between overflow-y-auto">
         {/* Top Sampler Header */}
         <div className="flex flex-col gap-2 mb-2.5 shrink-0">
           <div className="flex items-center justify-between gap-2 flex-wrap">
             <div className="flex items-center gap-1.5">
-              <Music2 className="w-4 h-4 text-[#F4256A]" />
-              <span className="font-display text-xs font-extrabold tracking-wider uppercase text-white">
+              <Music2 className="w-4 h-4 text-[#EC287B]" />
+              <span className="font-display text-xs font-extrabold tracking-wider uppercase text-[#FACC15]">
                 Sampler
               </span>
             </div>
@@ -270,14 +270,14 @@ export const SamplerPanel: React.FC<SamplerPanelProps> = ({
                 onClick={() => setEditMode((v) => !v)}
                 className={`px-2 py-0.5 rounded text-[10px] font-bold border cursor-pointer transition-colors ${
                   editMode
-                    ? 'bg-[#F4256A] border-[#F4256A] text-white'
-                    : 'bg-[#141824] border-white/10 text-slate-300 hover:text-white'
+                    ? 'bg-[#EC287B] border-[#EC287B] text-white shadow-[0_0_10px_rgba(236,40,123,0.45)]'
+                    : 'bg-[#0A0B0F] border-white/15 hover:border-[#FACC15]/60 text-slate-200 hover:text-white'
                 }`}
                 title="Activa para tocar cualquier Pad y editarlo"
               >
                 {editMode ? 'Editando Pads' : 'Editar Pad'}
               </button>
-              <span className="hidden sm:inline text-[10px] font-mono-tabular text-slate-400">
+              <span className="hidden sm:inline text-[10px] font-mono-tabular text-[#22D3EE]/80">
                 1-4, Q-R, A-F, Z-V
               </span>
             </div>
@@ -289,7 +289,7 @@ export const SamplerPanel: React.FC<SamplerPanelProps> = ({
               <select
                 value={activeBank?.id || ''}
                 onChange={(e) => onSelectBank(e.target.value)}
-                className="px-2.5 py-1 rounded bg-[#141824] border border-white/10 text-xs font-semibold text-white focus:outline-none focus:border-purple-500/60"
+                className="px-2.5 py-1 rounded bg-[#0A0B0F] border border-white/15 text-xs font-bold text-white focus:outline-none focus:border-[#22D3EE]"
               >
                 {banks.map((b) => (
                   <option key={b.id} value={b.id}>
@@ -301,7 +301,7 @@ export const SamplerPanel: React.FC<SamplerPanelProps> = ({
               <button
                 type="button"
                 onClick={onCreateBank}
-                className="p-1.5 rounded bg-[#141824] hover:bg-[#1E2436] border border-white/10 text-slate-300 cursor-pointer"
+                className="p-1.5 rounded bg-[#0A0B0F] hover:bg-[#181B25] border border-white/15 hover:border-[#22D3EE]/60 text-[#22D3EE] cursor-pointer"
                 title="Nuevo Banco de Samplers"
               >
                 <Plus className="w-3 h-3" />
@@ -309,7 +309,7 @@ export const SamplerPanel: React.FC<SamplerPanelProps> = ({
               <button
                 type="button"
                 onClick={onRenameBank}
-                className="p-1.5 rounded bg-[#141824] hover:bg-[#1E2436] border border-white/10 text-slate-300 cursor-pointer"
+                className="p-1.5 rounded bg-[#0A0B0F] hover:bg-[#181B25] border border-white/15 hover:border-[#FACC15]/60 text-[#FACC15] cursor-pointer"
                 title="Renombrar Banco"
               >
                 <Edit2 className="w-3 h-3" />
@@ -317,7 +317,7 @@ export const SamplerPanel: React.FC<SamplerPanelProps> = ({
               <button
                 type="button"
                 onClick={onDeleteBank}
-                className="p-1.5 rounded bg-[#141824] hover:bg-red-600/25 border border-white/10 text-slate-300 hover:text-red-400 cursor-pointer"
+                className="p-1.5 rounded bg-[#0A0B0F] hover:bg-red-600/25 border border-white/15 text-slate-300 hover:text-red-400 cursor-pointer"
                 title="Eliminar Banco"
               >
                 <Trash2 className="w-3 h-3" />
@@ -325,16 +325,16 @@ export const SamplerPanel: React.FC<SamplerPanelProps> = ({
             </div>
 
             <div className="flex items-center gap-1.5">
-              <div className="flex items-center bg-[#141722] border border-white/10 rounded p-0.5">
+              <div className="flex items-center bg-[#0A0B0F] border border-white/15 rounded p-0.5">
                 {(['one-shot', 'poly', 'gate'] as TriggerMode[]).map((mode) => (
                   <button
                     key={mode}
                     type="button"
                     onClick={() => onChangeTriggerMode(mode)}
-                    className={`px-2 py-0.5 rounded text-[10px] font-bold capitalize transition-colors cursor-pointer ${
+                    className={`px-2 py-0.5 rounded text-[10px] font-extrabold capitalize transition-all cursor-pointer border ${
                       triggerMode === mode
-                        ? 'bg-[#7C3AED] text-white'
-                        : 'text-slate-400 hover:text-white'
+                        ? 'bg-[#22D3EE] border-[#22D3EE] text-[#090A0E] shadow-[0_0_10px_rgba(34,211,238,0.4)]'
+                        : 'border-transparent text-slate-400 hover:text-white'
                     }`}
                   >
                     {mode === 'one-shot'
@@ -349,7 +349,7 @@ export const SamplerPanel: React.FC<SamplerPanelProps> = ({
               <button
                 type="button"
                 onClick={onToggleFullPadsView}
-                className="p-1.5 rounded bg-[#141824] hover:bg-[#1E2436] border border-white/10 text-slate-300 cursor-pointer"
+                className="p-1.5 rounded bg-[#0A0B0F] hover:bg-[#181B25] border border-[#FACC15]/55 text-[#FACC15] cursor-pointer"
                 title={isFullPadsView ? 'Volver a Vista Mixer' : 'Expandir Pads'}
               >
                 {isFullPadsView ? (

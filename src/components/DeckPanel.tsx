@@ -166,8 +166,8 @@ export const DeckPanel: React.FC<DeckPanelProps> = ({
       const gap = 3;
       const barWidth = (w - gap * (barCount - 1)) / barCount;
 
-      const accentPrimary = deck.id === 'A' ? '#38BDF8' : '#F4256A';
-      const accentSecondary = deck.id === 'A' ? '#2563EB' : '#9333EA';
+      const accentPrimary = deck.id === 'A' ? '#67E8F9' : '#F472B6';
+      const accentSecondary = deck.id === 'A' ? '#22D3EE' : '#EC287B';
 
       for (let i = 0; i < barCount; i++) {
         const binIdx = Math.min(bins.length - 1, Math.floor((i / barCount) * (bins.length * 0.7)));
@@ -189,8 +189,8 @@ export const DeckPanel: React.FC<DeckPanelProps> = ({
       if (deck.isPlaying && level > 0.05) {
         ctx2d.strokeStyle =
           deck.id === 'A'
-            ? `rgba(56, 189, 248, ${0.15 + level * 0.35})`
-            : `rgba(244, 37, 106, ${0.15 + level * 0.35})`;
+            ? `rgba(34, 211, 238, ${0.2 + level * 0.4})`
+            : `rgba(236, 40, 123, ${0.2 + level * 0.4})`;
         ctx2d.lineWidth = 2;
         ctx2d.beginPath();
         ctx2d.arc(w / 2, h * 0.36, 28 + level * 22, 0, Math.PI * 2);
@@ -229,7 +229,7 @@ export const DeckPanel: React.FC<DeckPanelProps> = ({
   const isReverse = deck.id === 'B';
 
   const PitchAndTransportStrip = (
-    <div className="relative w-[48px] sm:w-[58px] lg:w-[68px] shrink-0 flex flex-col items-center justify-between py-1.5 lg:py-2 px-1 lg:px-1.5 bg-[#0B0D14] border border-white/10 rounded-lg select-none">
+    <div className="relative w-[48px] sm:w-[58px] lg:w-[68px] shrink-0 flex flex-col items-center justify-between py-1.5 lg:py-2 px-1 lg:px-1.5 bg-[#101218] border border-white/15 rounded-lg select-none">
       {/* Musical Note & Semitone readout */}
       <div className="flex flex-col items-center w-full">
         <button
@@ -237,10 +237,10 @@ export const DeckPanel: React.FC<DeckPanelProps> = ({
           onClick={() => setShowKeyPicker((v) => !v)}
           className={`w-full py-0.5 lg:py-1 px-0.5 lg:px-1 rounded border text-center transition-colors cursor-pointer mb-1 lg:mb-1.5 ${
             deck.pitchSemitones === 0
-              ? 'bg-cyan-500/10 border-cyan-500/35 text-cyan-300 hover:bg-cyan-500/20'
+              ? 'bg-[#0A0B0F] border-[#22D3EE]/55 text-[#22D3EE] hover:bg-[#22D3EE]/15'
               : deck.pitchSemitones > 0
-              ? 'bg-emerald-500/15 border-emerald-500/40 text-emerald-300 hover:bg-emerald-500/25'
-              : 'bg-[#F4256A]/15 border-[#F4256A]/45 text-[#F973A2] hover:bg-[#F4256A]/25'
+              ? 'bg-[#0A0B0F] border-[#FACC15]/70 text-[#FACC15] hover:bg-[#FACC15]/15'
+              : 'bg-[#0A0B0F] border-[#EC287B]/70 text-[#EC287B] hover:bg-[#EC287B]/15'
           }`}
           title="Elegir nota musical del cantante o tono original de la pista"
         >
@@ -281,10 +281,10 @@ export const DeckPanel: React.FC<DeckPanelProps> = ({
             window.addEventListener('pointerup', onUp);
           }}
         >
-          <div className="w-1 h-full bg-[#1C2130] rounded-full relative">
-            <div className="absolute top-1/2 -left-1.5 -right-1.5 h-[1px] bg-slate-500/60" />
+          <div className="w-1 h-full bg-[#090A0E] rounded-full relative border border-white/10">
+            <div className="absolute top-1/2 -left-1.5 -right-1.5 h-[1px] bg-[#FACC15]/50" />
             <div
-              className="absolute left-1/2 -translate-x-1/2 w-5 h-2 rounded-sm bg-slate-200 border border-slate-400 shadow"
+              className="absolute left-1/2 -translate-x-1/2 w-5 h-2 rounded-sm bg-[#FACC15] border border-[#090A0E] shadow-[0_0_6px_rgba(250,204,21,0.5)]"
               style={{
                 top: `${((12 - deck.pitchSemitones) / 24) * 100}%`,
                 transform: 'translate(-50%, -50%)',
@@ -293,7 +293,7 @@ export const DeckPanel: React.FC<DeckPanelProps> = ({
           </div>
         </div>
 
-        <span className="text-[8px] lg:text-[9px] font-bold tracking-wider text-slate-400 mt-0.5 lg:mt-1">
+        <span className="text-[8px] lg:text-[9px] font-extrabold tracking-wider text-[#FACC15] mt-0.5 lg:mt-1">
           TONO
         </span>
 
@@ -302,7 +302,7 @@ export const DeckPanel: React.FC<DeckPanelProps> = ({
           <button
             type="button"
             onClick={() => onChangePitch(Math.max(-12, deck.pitchSemitones - 1))}
-            className="w-[18px] h-[18px] lg:w-5 lg:h-5 rounded bg-[#161B26] hover:bg-[#22293A] border border-white/10 text-slate-200 text-[11px] lg:text-xs font-bold flex items-center justify-center cursor-pointer"
+            className="w-[18px] h-[18px] lg:w-5 lg:h-5 rounded bg-[#0A0B0F] hover:bg-[#1C202C] border border-white/20 text-slate-100 text-[11px] lg:text-xs font-bold flex items-center justify-center cursor-pointer"
             title="Bajar 1 semitono"
           >
             -
@@ -310,7 +310,7 @@ export const DeckPanel: React.FC<DeckPanelProps> = ({
           <button
             type="button"
             onClick={() => onChangePitch(Math.min(12, deck.pitchSemitones + 1))}
-            className="w-[18px] h-[18px] lg:w-5 lg:h-5 rounded bg-[#161B26] hover:bg-[#22293A] border border-white/10 text-slate-200 text-[11px] lg:text-xs font-bold flex items-center justify-center cursor-pointer"
+            className="w-[18px] h-[18px] lg:w-5 lg:h-5 rounded bg-[#0A0B0F] hover:bg-[#1C202C] border border-white/20 text-slate-100 text-[11px] lg:text-xs font-bold flex items-center justify-center cursor-pointer"
             title="Subir 1 semitono"
           >
             +
@@ -323,7 +323,7 @@ export const DeckPanel: React.FC<DeckPanelProps> = ({
         <button
           type="button"
           onClick={onCue}
-          className="w-8 h-8 lg:w-9 lg:h-9 rounded-full border-2 border-amber-500/80 bg-amber-500/10 hover:bg-amber-500/25 text-amber-400 text-[8px] lg:text-[9px] font-extrabold tracking-wide flex items-center justify-center transition-colors cursor-pointer active:scale-95"
+          className="w-8 h-8 lg:w-9 lg:h-9 rounded-full border-2 border-[#FACC15] bg-[#0A0B0F] hover:bg-[#FACC15]/20 text-[#FACC15] text-[8px] lg:text-[9px] font-extrabold tracking-wide flex items-center justify-center transition-colors cursor-pointer active:scale-95 shadow-[0_0_10px_rgba(250,204,21,0.25)]"
           title="CUE: Fijar o volver al punto Cue"
         >
           CUE
@@ -334,8 +334,12 @@ export const DeckPanel: React.FC<DeckPanelProps> = ({
           onClick={onTogglePlay}
           className={`w-8 h-8 lg:w-9 lg:h-9 rounded-full border-2 flex items-center justify-center transition-all cursor-pointer active:scale-95 ${
             deck.isPlaying
-              ? 'border-emerald-400 bg-emerald-500/25 text-emerald-300 shadow-[0_0_16px_rgba(16,185,129,0.4)]'
-              : 'border-emerald-500/75 bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-400'
+              ? deck.id === 'A'
+                ? 'border-[#22D3EE] bg-[#22D3EE] text-[#090A0E] shadow-[0_0_16px_rgba(34,211,238,0.6)]'
+                : 'border-[#EC287B] bg-[#EC287B] text-white shadow-[0_0_16px_rgba(236,40,123,0.6)]'
+              : deck.id === 'A'
+              ? 'border-[#22D3EE] bg-[#0A0B0F] hover:bg-[#22D3EE]/15 text-[#22D3EE]'
+              : 'border-[#EC287B] bg-[#0A0B0F] hover:bg-[#EC287B]/15 text-[#EC287B]'
           }`}
           title={deck.isPlaying ? 'Pausar Deck' : 'Reproducir Deck'}
         >
@@ -479,25 +483,35 @@ export const DeckPanel: React.FC<DeckPanelProps> = ({
       <div
         className={`${
           deck.isExpanded
-            ? 'fixed inset-3 lg:inset-4 z-50 bg-[#07090E] border border-[#F4256A]/40 rounded-2xl shadow-2xl p-3 lg:p-4 flex flex-col'
-            : `relative flex-1 min-h-[120px] lg:min-h-[210px] bg-[#07090E] border ${
-                isEndingSoon ? 'border-red-500/90' : 'border-white/10'
+            ? 'fixed inset-3 lg:inset-4 z-50 bg-[#0A0B0F] border-2 border-[#FACC15] rounded-2xl shadow-2xl p-3 lg:p-4 flex flex-col'
+            : `relative flex-1 min-h-[120px] lg:min-h-[210px] bg-[#0B0D12] border ${
+                isEndingSoon
+                  ? 'border-red-500/90'
+                  : deck.id === 'A'
+                  ? 'border-[#22D3EE]/35'
+                  : 'border-[#EC287B]/35'
               } rounded-lg overflow-hidden flex flex-col`
         }`}
       >
-        {/* Desktop Deck Header Strip (hidden on mobile where outer header handles it) */}
-        <div className="hidden lg:flex items-center justify-between gap-2 px-3 py-2 bg-[#0B0D14]/90 border-b border-white/5 z-20">
+        {/* Desktop Deck Header Strip */}
+        <div className="hidden lg:flex items-center justify-between gap-2 px-3 py-2 bg-[#101218] border-b border-white/10 z-20">
           <div className="flex items-center gap-2 min-w-0">
-            <span className="px-2 py-0.5 rounded bg-[#191D2B] border border-white/10 text-[11px] font-bold tracking-wide text-slate-200 whitespace-nowrap shrink-0">
+            <span
+              className={`px-2 py-0.5 rounded border text-[11px] font-extrabold tracking-wide whitespace-nowrap shrink-0 ${
+                deck.id === 'A'
+                  ? 'bg-[#22D3EE] border-[#22D3EE] text-[#090A0E]'
+                  : 'bg-[#EC287B] border-[#EC287B] text-white'
+              }`}
+            >
               DECK {deck.id}
             </span>
             {deck.track && deck.source === 'local' && (
-              <span className="text-xs font-medium text-slate-200 truncate">
+              <span className="text-xs font-semibold text-slate-100 truncate">
                 {deck.track.name}
               </span>
             )}
             {deck.source === 'youtube' && deck.youtubeTitle && (
-              <span className="text-xs font-medium text-red-300 truncate">
+              <span className="text-xs font-semibold text-[#FACC15] truncate">
                 {deck.youtubeTitle}
               </span>
             )}
@@ -509,7 +523,7 @@ export const DeckPanel: React.FC<DeckPanelProps> = ({
               <button
                 type="button"
                 onClick={() => onChangeStemMode('full')}
-                className="px-2 py-0.5 rounded bg-purple-600/30 border border-purple-400/50 text-[10px] font-semibold text-purple-200 hover:bg-purple-600/50 cursor-pointer whitespace-nowrap"
+                className="px-2 py-0.5 rounded bg-[#FACC15]/15 border border-[#FACC15]/60 text-[10px] font-bold text-[#FACC15] hover:bg-[#FACC15]/30 cursor-pointer whitespace-nowrap"
                 title="Clic para restaurar pista completa"
               >
                 {deck.stemMode === 'instrumental'
@@ -526,10 +540,10 @@ export const DeckPanel: React.FC<DeckPanelProps> = ({
               onClick={() =>
                 onChangeSource(deck.source === 'local' ? 'youtube' : 'local')
               }
-              className={`px-2.5 py-0.5 rounded text-[11px] font-semibold border transition-colors cursor-pointer whitespace-nowrap ${
+              className={`px-2.5 py-0.5 rounded text-[11px] font-bold border transition-colors cursor-pointer whitespace-nowrap ${
                 deck.source === 'local'
-                  ? 'bg-blue-600/80 hover:bg-blue-600 text-white border-blue-400/50'
-                  : 'bg-red-600/80 hover:bg-red-600 text-white border-red-400/50'
+                  ? 'bg-[#0A0B0F] hover:bg-[#191D29] text-[#22D3EE] border-[#22D3EE]/60'
+                  : 'bg-[#EC287B] hover:bg-[#F43F8E] text-white border-[#EC287B]'
               }`}
               title="Cambiar entre Audio Local y YouTube Karaoke"
             >
@@ -540,20 +554,20 @@ export const DeckPanel: React.FC<DeckPanelProps> = ({
             <button
               type="button"
               onClick={onToggleExpand}
-              className="p-1 rounded bg-[#141824] hover:bg-[#1E2436] border border-white/10 text-slate-300 cursor-pointer"
+              className="p-1 rounded bg-[#0A0B0F] hover:bg-[#1C202C] border border-white/15 hover:border-[#FACC15]/60 text-slate-200 cursor-pointer"
               title={deck.isExpanded ? 'Minimizar pantalla' : 'Proyectar en grande'}
             >
               {deck.isExpanded ? (
-                <Minimize2 className="w-3.5 h-3.5" />
+                <Minimize2 className="w-3.5 h-3.5 text-[#FACC15]" />
               ) : (
-                <Maximize2 className="w-3.5 h-3.5" />
+                <Maximize2 className="w-3.5 h-3.5 text-[#FACC15]" />
               )}
             </button>
           </div>
         </div>
 
         {/* Viewport Body */}
-        <div className="relative flex-1 flex items-center justify-center overflow-hidden bg-[#06070B]">
+        <div className="relative flex-1 flex items-center justify-center overflow-hidden studio-wave-grid">
           {/* Ending-Soon Red Warning Banner matching mobile reference */}
           {isEndingSoon && (
             <div className="absolute top-2 inset-x-1.5 z-30 flex items-center justify-center pointer-events-none">
@@ -660,10 +674,20 @@ export const DeckPanel: React.FC<DeckPanelProps> = ({
           ) : !deck.track ? (
             /* IDLE WATERMARK STATE */
             <div className="flex flex-col items-center justify-center select-none pointer-events-none">
-              <div className="w-9 h-9 lg:w-14 lg:h-14 rounded-full bg-[#3A0E22]/70 border border-[#F4256A]/25 flex items-center justify-center mb-1.5 lg:mb-3">
-                <Mic className="w-4 h-4 lg:w-6 lg:h-6 text-[#F4256A]/85" />
+              <div
+                className={`w-9 h-9 lg:w-14 lg:h-14 rounded-full bg-[#101218] border-2 ${
+                  deck.id === 'A'
+                    ? 'border-[#22D3EE]/60 shadow-[0_0_16px_rgba(34,211,238,0.2)]'
+                    : 'border-[#EC287B]/60 shadow-[0_0_16px_rgba(236,40,123,0.2)]'
+                } flex items-center justify-center mb-1.5 lg:mb-3`}
+              >
+                <Mic
+                  className={`w-4 h-4 lg:w-6 lg:h-6 ${
+                    deck.id === 'A' ? 'text-[#22D3EE]' : 'text-[#EC287B]'
+                  }`}
+                />
               </div>
-              <span className="font-display text-[9px] lg:text-xs tracking-[0.3em] lg:tracking-[0.35em] font-semibold text-slate-500/80 uppercase">
+              <span className="font-display text-[9px] lg:text-xs tracking-[0.3em] lg:tracking-[0.35em] font-bold text-[#FACC15]/75 uppercase">
                 ShowLive
               </span>
             </div>
@@ -768,7 +792,7 @@ export const DeckPanel: React.FC<DeckPanelProps> = ({
         </div>
 
         <div
-          className="relative flex-1 h-1.5 lg:h-2 bg-[#171B26] rounded-full cursor-pointer group overflow-hidden"
+          className="relative flex-1 h-1.5 lg:h-2 bg-[#101218] border border-white/10 rounded-full cursor-pointer group overflow-hidden"
           onClick={(e) => {
             if (deck.source !== 'local' || !deck.duration) return;
             const rect = e.currentTarget.getBoundingClientRect();
@@ -779,16 +803,16 @@ export const DeckPanel: React.FC<DeckPanelProps> = ({
           <div
             className={`h-full rounded-full transition-all duration-75 ${
               isEndingSoon
-                ? 'bg-gradient-to-r from-[#F4256A] to-amber-400'
+                ? 'bg-gradient-to-r from-[#EC287B] to-[#FACC15]'
                 : deck.id === 'A'
-                ? 'bg-gradient-to-r from-cyan-500 to-blue-500'
-                : 'bg-gradient-to-r from-[#F4256A] to-purple-500'
+                ? 'bg-gradient-to-r from-[#22D3EE] to-[#FACC15]'
+                : 'bg-gradient-to-r from-[#EC287B] to-[#FACC15]'
             }`}
             style={{ width: `${progressPct}%` }}
           />
         </div>
 
-        <span className="hidden lg:inline text-[11px] font-mono-tabular text-slate-400 w-9 text-right shrink-0">
+        <span className="hidden lg:inline text-[11px] font-mono-tabular text-slate-300 w-9 text-right shrink-0">
           {formatTime(deck.duration)}
         </span>
       </div>
@@ -798,13 +822,19 @@ export const DeckPanel: React.FC<DeckPanelProps> = ({
   return (
     <div
       className={`flex-1 min-w-0 flex flex-col gap-1 lg:gap-0 lg:flex-row lg:items-stretch lg:gap-2 p-1 lg:p-0 rounded-lg lg:rounded-none border lg:border-0 ${
-        isEndingSoon ? 'border-red-500/80 bg-red-950/10 lg:bg-transparent' : 'border-white/5 bg-[#0A0C12] lg:bg-transparent'
+        isEndingSoon ? 'border-red-500/80 bg-red-950/10 lg:bg-transparent' : 'border-white/10 bg-[#101218] lg:bg-transparent'
       }`}
     >
-      {/* Mobile-only Deck Header matching cellular reference screenshot */}
+      {/* Mobile-only Deck Header */}
       <div className="flex lg:hidden flex-col gap-1 px-0.5 pt-0.5">
         <div className="flex items-center justify-between gap-1">
-          <span className="px-1.5 py-0.5 rounded bg-[#191D2B] border border-white/10 text-[10px] font-extrabold tracking-wide text-slate-100 whitespace-nowrap">
+          <span
+            className={`px-1.5 py-0.5 rounded border text-[10px] font-extrabold tracking-wide whitespace-nowrap ${
+              deck.id === 'A'
+                ? 'bg-[#22D3EE] border-[#22D3EE] text-[#090A0E]'
+                : 'bg-[#EC287B] border-[#EC287B] text-white'
+            }`}
+          >
             DECK {deck.id}
           </span>
 
@@ -814,10 +844,10 @@ export const DeckPanel: React.FC<DeckPanelProps> = ({
               onClick={() =>
                 onChangeSource(deck.source === 'local' ? 'youtube' : 'local')
               }
-              className={`px-1.5 py-0.5 rounded text-[9px] font-semibold border cursor-pointer ${
+              className={`px-1.5 py-0.5 rounded text-[9px] font-bold border cursor-pointer ${
                 deck.source === 'local'
-                  ? 'bg-blue-600/80 text-white border-blue-400/50'
-                  : 'bg-red-600/80 text-white border-red-400/50'
+                  ? 'bg-[#0A0B0F] text-[#22D3EE] border-[#22D3EE]/60'
+                  : 'bg-[#EC287B] text-white border-[#EC287B]'
               }`}
             >
               {deck.source === 'local' ? 'Local' : 'YT'}
