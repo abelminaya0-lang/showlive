@@ -104,7 +104,7 @@ function createInitialDeck(id: DeckId): DeckState {
 }
 
 export default function App() {
-  const [inStudio, setInStudio] = useState(false);
+  const [inStudio, setInStudio] = useState(true);
   const [workspaceMode, setWorkspaceMode] = useState<WorkspaceMode>('mixer');
   const [mobileTab, setMobileTab] = useState<'decks' | 'library' | 'sampler'>('decks');
   const [libraryTab, setLibraryTab] = useState<LibraryTab>('local');
@@ -219,7 +219,6 @@ export default function App() {
         setAccessRequest(null);
         setClientChecked(true);
         setAuthLoading(false);
-        setInStudio(false);
         setShowAdminDashboard(false);
         hydratedUidRef.current = null;
         loggedEntryForUidRef.current = null;
@@ -307,7 +306,7 @@ export default function App() {
     });
   }, []);
 
-  // Auto-open full ShowLive Studio as soon as user is authenticated & authorized
+  // Auto-open full ShowLive Studio as soon as user signs in
   useEffect(() => {
     if (!authLoading && isAuthorized && !showAdminDashboard && !inStudio) {
       setShowLoginScreen(false);
@@ -315,16 +314,12 @@ export default function App() {
     }
   }, [authLoading, isAuthorized, showAdminDashboard, inStudio]);
 
-  // Kick out of Studio immediately if client access is revoked live
+  // Warn if an explicitly suspended client logs in
   useEffect(() => {
-    if (clientChecked && !authLoading && authUser && !isAuthorized && inStudio) {
-      setDeckA((p) => ({ ...p, isPlaying: false }));
-      setDeckB((p) => ({ ...p, isPlaying: false }));
-      audioEngine.stopAllPads();
-      setInStudio(false);
-      showToast('Tu acceso fue suspendido por el administrador.');
+    if (clientChecked && !authLoading && authUser && clientSuspended) {
+      showToast('Esta cuenta está suspendida en el panel de clientes.');
     }
-  }, [authLoading, authUser, clientChecked, inStudio, isAuthorized, showToast]);
+  }, [authLoading, authUser, clientChecked, clientSuspended, showToast]);
 
   // Record user studio entry log once per session
   useEffect(() => {
@@ -344,16 +339,18 @@ export default function App() {
     }
   }, [authUser, authLoading, clientChecked, clientRecord, clientSuspended, isAdmin]);
 
-  // Rehydrate user's cloud workspace (playlists & samplers) + local IndexedDB blobs
+  // Rehydrate user's cloud workspace (playlists & samplers) + local IndexedDB blobs (or guest local state)
   useEffect(() => {
-    if (!authUser || !isAuthorized) return;
-    if (hydratedUidRef.current === authUser.uid) return;
+    if (authLoading) return;
+    const targetKey = authUser && isAuthorized ? authUser.uid : 'guest';
+    if (hydratedUidRef.current === targetKey) return;
     let active = true;
 
     (async () => {
+      const uidForCloud = authUser && isAuthorized ? authUser.uid : undefined;
       const [localData, cloudData] = await Promise.all([
-        loadPersistedState(authUser.uid),
-        loadUserWorkspace(authUser.uid).catch(() => null),
+        loadPersistedState(uidForCloud),
+        uidForCloud ? loadUserWorkspace(uidForCloud).catch(() => null) : Promise.resolve(null),
       ]);
       if (!active) return;
 
@@ -392,18 +389,18 @@ export default function App() {
         setActiveBankId(INITIAL_SAMPLER_BANKS[0].id);
       }
 
-      hydratedUidRef.current = authUser.uid;
+      hydratedUidRef.current = targetKey;
     })();
 
     return () => {
       active = false;
     };
-  }, [authUser, isAuthorized]);
+  }, [authLoading, authUser, isAuthorized]);
 
   // Persist locally & debounced sync to Firestore whenever playlists, tracks, or sampler changes
   useEffect(() => {
-    if (!authUser || !isAuthorized) return;
-    if (hydratedUidRef.current !== authUser.uid) return;
+    const targetKey = authUser && isAuthorized ? authUser.uid : 'guest';
+    if (hydratedUidRef.current !== targetKey) return;
 
     savePersistedState(
       {
@@ -412,8 +409,10 @@ export default function App() {
         samplerBanks,
         activeBankId,
       },
-      authUser.uid
+      authUser && isAuthorized ? authUser.uid : undefined
     );
+
+    if (!authUser || !isAuthorized) return;
 
     if (cloudSaveTimerRef.current) {
       window.clearTimeout(cloudSaveTimerRef.current);
@@ -616,7 +615,6 @@ export default function App() {
     setDeckA((p) => ({ ...p, isPlaying: false }));
     setDeckB((p) => ({ ...p, isPlaying: false }));
     audioEngine.stopAllPads();
-    setInStudio(false);
     setShowAdminDashboard(false);
     setShowLoginScreen(false);
     setAuthError(null);
@@ -675,20 +673,9 @@ export default function App() {
   }, [inStudio]);
 
   const handleOpenStudio = (initialTab: LibraryTab = 'local') => {
-    if (!isAuthorized) {
-      if (!authUser) {
-        setAuthError(null);
-        setAuthNotice(null);
-        setShowLoginScreen(true);
-      } else if (!authUser.emailVerified) {
-        showToast('Confirma tu correo electrónico primero.');
-      } else {
-        showToast('Tu correo aún no tiene acceso autorizado.');
-      }
-      return;
-    }
     audioEngine.resume();
     setShowAdminDashboard(false);
+    setShowLoginScreen(false);
     setLibraryTab(initialTab);
     setInStudio(true);
     if (initialTab === 'youtube' && ytResults.length === 0) {
@@ -1405,7 +1392,7 @@ export default function App() {
     );
   }
 
-  if (!inStudio || !isAuthorized) {
+  if (!inStudio) {
     return (
       <LandingView
         onOpenStudio={handleOpenStudio}
@@ -1414,9 +1401,9 @@ export default function App() {
         userName={authUser?.displayName || null}
         userPhoto={authUser?.photoURL || null}
         emailVerified={Boolean(authUser?.emailVerified)}
-        isAuthorized={isAuthorized}
+        isAuthorized={true}
         isAdmin={isAdmin}
-        clientSuspended={Boolean(clientRecord && !clientRecord.active)}
+        clientSuspended={clientSuspended}
         accessRequestStatus={accessRequest?.status || null}
         onOpenLogin={() => {
           setAuthError(null);
@@ -1455,6 +1442,11 @@ export default function App() {
         workspaceMode={workspaceMode}
         onChangeMode={setWorkspaceMode}
         onOpenAiConfig={() => setShowAiConfigModal(true)}
+        onOpenLogin={() => {
+          setAuthError(null);
+          setAuthNotice(null);
+          setShowLoginScreen(true);
+        }}
         onLogout={handleSignOut}
         aiConfig={aiConfig}
         isAdmin={isAdmin}
@@ -1467,25 +1459,48 @@ export default function App() {
         userEmail={authUser?.email || null}
       />
 
-      {/* Mobile Admin Quick Bar (< lg, Admin only) */}
-      {isAdmin && (
-        <div className="lg:hidden flex items-center justify-between px-3 py-1.5 bg-[#0B1218] border-b border-emerald-500/25 shrink-0">
-          <span className="text-[11px] font-semibold text-emerald-300 truncate">
-            Admin · Panel Personal
-          </span>
-          <button
-            type="button"
-            onClick={() => {
-              setDeckA((p) => ({ ...p, isPlaying: false }));
-              setDeckB((p) => ({ ...p, isPlaying: false }));
-              setShowAdminDashboard(true);
-            }}
-            className="px-2.5 py-1 rounded bg-emerald-500/20 border border-emerald-500/40 text-[11px] font-bold text-emerald-200 cursor-pointer shrink-0"
-          >
-            Mi Dashboard
-          </button>
+      {/* Mobile Compact Header (< lg) */}
+      <div className="lg:hidden flex items-center justify-between px-3 py-1.5 bg-[#0B1018] border-b border-white/10 shrink-0">
+        <span className="font-display text-xs font-extrabold tracking-tight text-white">
+          Show<span className="text-[#F4256A]">Live</span>
+        </span>
+        <div className="flex items-center gap-2">
+          {isAdmin && (
+            <button
+              type="button"
+              onClick={() => {
+                setDeckA((p) => ({ ...p, isPlaying: false }));
+                setDeckB((p) => ({ ...p, isPlaying: false }));
+                setShowAdminDashboard(true);
+              }}
+              className="px-2.5 py-1 rounded bg-emerald-500/20 border border-emerald-500/40 text-[11px] font-bold text-emerald-200 cursor-pointer shrink-0"
+            >
+              Mi Dashboard
+            </button>
+          )}
+          {!authUser ? (
+            <button
+              type="button"
+              onClick={() => {
+                setAuthError(null);
+                setAuthNotice(null);
+                setShowLoginScreen(true);
+              }}
+              className="px-2.5 py-1 rounded bg-cyan-500/15 border border-cyan-400/50 text-[11px] font-bold text-cyan-200 cursor-pointer shrink-0"
+            >
+              Iniciar sesión
+            </button>
+          ) : (
+            <button
+              type="button"
+              onClick={handleSignOut}
+              className="px-2.5 py-1 rounded bg-white/5 border border-white/10 text-[11px] font-semibold text-slate-300 cursor-pointer shrink-0"
+            >
+              Salir
+            </button>
+          )}
         </div>
-      )}
+      </div>
 
       {/* Main Studio Body */}
       <main className="flex-1 min-h-0 p-1.5 sm:p-2.5 flex flex-col gap-1.5 lg:gap-2.5 overflow-hidden">

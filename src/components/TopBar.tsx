@@ -6,6 +6,7 @@ interface TopBarProps {
   workspaceMode: WorkspaceMode;
   onChangeMode: (mode: WorkspaceMode) => void;
   onOpenAiConfig: () => void;
+  onOpenLogin?: () => void;
   onLogout: () => void;
   aiConfig: IAModelConfig;
   isAdmin?: boolean;
@@ -18,6 +19,7 @@ export const TopBar: React.FC<TopBarProps> = ({
   workspaceMode,
   onChangeMode,
   onOpenAiConfig,
+  onOpenLogin,
   onLogout,
   aiConfig,
   isAdmin,
@@ -166,28 +168,40 @@ export const TopBar: React.FC<TopBarProps> = ({
           <span>IA Model</span>
         </button>
 
-        {/* Logout button */}
-        <button
-          type="button"
-          onClick={onLogout}
-          className="flex items-center gap-2 px-2.5 py-1 rounded-md bg-[#131620] hover:bg-[#1B202E] border border-white/10 text-xs font-medium text-slate-200 transition-colors cursor-pointer whitespace-nowrap shrink-0"
-          title={userEmail ? `Sesión: ${userEmail} (Salir)` : 'Cerrar sesión'}
-        >
-          {userPhoto ? (
-            <img
-              src={userPhoto}
-              alt={userEmail || 'Usuario'}
-              referrerPolicy="no-referrer"
-              className="w-5 h-5 rounded-full object-cover"
-            />
-          ) : (
-            <span className="w-5 h-5 rounded-full bg-gradient-to-br from-cyan-500 to-blue-600 flex items-center justify-center">
-              <User className="w-3 h-3 text-white" />
-            </span>
-          )}
-          <span className="hidden sm:inline">Salir</span>
-          <LogOut className="w-3 h-3 text-slate-400 sm:hidden" />
-        </button>
+        {/* Auth / Profile button */}
+        {!userEmail && onOpenLogin ? (
+          <button
+            type="button"
+            onClick={onOpenLogin}
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-md bg-cyan-500/15 hover:bg-cyan-500/25 border border-cyan-400/50 text-xs font-bold text-cyan-200 transition-colors cursor-pointer whitespace-nowrap shrink-0"
+            title="Iniciar sesión con Google o correo"
+          >
+            <User className="w-3.5 h-3.5 text-cyan-300" />
+            <span>Iniciar sesión</span>
+          </button>
+        ) : (
+          <button
+            type="button"
+            onClick={onLogout}
+            className="flex items-center gap-2 px-2.5 py-1 rounded-md bg-[#131620] hover:bg-[#1B202E] border border-white/10 text-xs font-medium text-slate-200 transition-colors cursor-pointer whitespace-nowrap shrink-0"
+            title={userEmail ? `Sesión: ${userEmail} (Salir)` : 'Cerrar sesión'}
+          >
+            {userPhoto ? (
+              <img
+                src={userPhoto}
+                alt={userEmail || 'Usuario'}
+                referrerPolicy="no-referrer"
+                className="w-5 h-5 rounded-full object-cover"
+              />
+            ) : (
+              <span className="w-5 h-5 rounded-full bg-gradient-to-br from-cyan-500 to-blue-600 flex items-center justify-center">
+                <User className="w-3 h-3 text-white" />
+              </span>
+            )}
+            <span className="hidden sm:inline">Salir</span>
+            <LogOut className="w-3 h-3 text-slate-400 sm:hidden" />
+          </button>
+        )}
       </div>
     </header>
   );
