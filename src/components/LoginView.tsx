@@ -160,9 +160,10 @@ export const LoginView: React.FC<LoginViewProps> = ({
           )}
 
           {mode === 'paid_help' ? (
-            <div className="space-y-4">
+            <div className="space-y-3.5">
               <p className="text-xs text-slate-300 leading-relaxed">
-                Si ya realizaste tu pago, escribe tu correo abajo y contáctanos por WhatsApp para activar tu acceso al instante, o recupera tu contraseña si ya fuiste registrado.
+                Si ya realizaste tu pago y activamos tu correo: puedes entrar directo con{' '}
+                <strong className="text-white">Iniciar sesión con Google</strong> abajo, o crear tu contraseña ahora con ese mismo correo.
               </p>
 
               <input
@@ -172,6 +173,14 @@ export const LoginView: React.FC<LoginViewProps> = ({
                 placeholder="Tu correo (ej: micorreo@gmail.com)"
                 className="w-full px-4 py-3 rounded-xl bg-[#161C2C]/90 border border-white/15 text-sm text-white placeholder:text-slate-400 focus:outline-none focus:border-emerald-400/70"
               />
+
+              <button
+                type="button"
+                onClick={() => switchMode('register')}
+                className="w-full py-3 rounded-full border border-cyan-400/70 bg-[#07111F] hover:bg-[#0C1A2E] text-white text-sm font-bold cursor-pointer transition-colors"
+              >
+                Crear mi contraseña con este correo
+              </button>
 
               <a
                 href={whatsappHelpUrl}
@@ -190,7 +199,7 @@ export const LoginView: React.FC<LoginViewProps> = ({
                 className="w-full py-2.5 rounded-full border border-emerald-400/50 bg-[#082422] hover:bg-[#0B302D] disabled:opacity-50 text-xs font-semibold text-emerald-200 flex items-center justify-center gap-2 cursor-pointer transition-colors"
               >
                 {submitting && <Loader2 className="w-3.5 h-3.5 animate-spin" />}
-                <span>Enviar enlace para crear / restablecer mi contraseña</span>
+                <span>Ya tengo clave, enviar enlace de recuperación</span>
               </button>
 
               <button

@@ -162,17 +162,19 @@ export async function recordAuthorizedClientEntry(
   if (!cleanEmail) return;
 
   const clientPath = `clients/${cleanEmail}`;
-  try {
-    await updateDoc(doc(db, 'clients', cleanEmail), {
-      uid: user.uid,
-      displayName: (user.displayName || currentClient.clientName || cleanEmail).slice(0, 100),
-      photoURL: (user.photoURL || '').slice(0, 400),
-      loginCount: (currentClient.loginCount || 0) + 1,
-      lastLoginAt: serverTimestamp(),
-      updatedAt: serverTimestamp(),
-    });
-  } catch (error) {
-    handleFirestoreError(error, OperationType.UPDATE, clientPath);
+  if (!currentClient.uid || currentClient.uid === user.uid) {
+    try {
+      await updateDoc(doc(db, 'clients', cleanEmail), {
+        uid: user.uid,
+        displayName: (user.displayName || currentClient.clientName || cleanEmail).slice(0, 100),
+        photoURL: (user.photoURL || '').slice(0, 400),
+        loginCount: (currentClient.loginCount || 0) + 1,
+        lastLoginAt: serverTimestamp(),
+        updatedAt: serverTimestamp(),
+      });
+    } catch (error) {
+      handleFirestoreError(error, OperationType.UPDATE, clientPath);
+    }
   }
 
   const logId = `${user.uid}_${Date.now()}`;

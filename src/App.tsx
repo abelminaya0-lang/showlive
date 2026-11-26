@@ -2,11 +2,13 @@ import React, { Suspense, lazy, useCallback, useEffect, useRef, useState } from 
 import {
   User,
   createUserWithEmailAndPassword,
+  getRedirectResult,
   onIdTokenChanged,
   sendEmailVerification,
   sendPasswordResetEmail,
   signInWithEmailAndPassword,
   signInWithPopup,
+  signInWithRedirect,
   signOut,
 } from 'firebase/auth';
 import { Disc, LayoutGrid, Library, Maximize, Settings } from 'lucide-react';
@@ -283,6 +285,29 @@ export default function App() {
     };
   }, []);
 
+  // Resolve any Google redirect result (fallback when popup was blocked on standalone browser)
+  useEffect(() => {
+    getRedirectResult(auth).catch((err: any) => {
+      const code = String(err?.code || '');
+      if (code && code !== 'auth/null-user') {
+        setAuthError(
+          code === 'auth/unauthorized-domain'
+            ? `El dominio "${window.location.hostname}" no está autorizado en Firebase. Agrégalo en Firebase Console (proyecto tactile-cosine-j2t1j) → Authentication → Settings → Authorized domains.`
+            : `No se pudo completar el acceso con Google (${code}).`
+        );
+        setShowLoginScreen(true);
+      }
+    });
+  }, []);
+
+  // Auto-open full ShowLive Studio as soon as user is authenticated & authorized
+  useEffect(() => {
+    if (!authLoading && isAuthorized && !showAdminDashboard && !inStudio) {
+      setShowLoginScreen(false);
+      setInStudio(true);
+    }
+  }, [authLoading, isAuthorized, showAdminDashboard, inStudio]);
+
   // Kick out of Studio immediately if client access is revoked live
   useEffect(() => {
     if (clientChecked && !authLoading && authUser && !isAuthorized && inStudio) {
@@ -413,6 +438,28 @@ export default function App() {
       setShowLoginScreen(false);
     } catch (err: any) {
       const code = String(err?.code || '');
+      const isStandalone = (() => {
+        try {
+          return window.self === window.top;
+        } catch {
+          return false;
+        }
+      })();
+      if (
+        isStandalone &&
+        (code === 'auth/popup-blocked' ||
+          code === 'auth/operation-not-supported-in-this-environment')
+      ) {
+        try {
+          await signInWithRedirect(auth, googleProvider);
+          return;
+        } catch (redirectErr: any) {
+          setAuthError(
+            `No se pudo abrir Google (${redirectErr?.code || 'error de redirección'}).`
+          );
+          return;
+        }
+      }
       if (code === 'auth/popup-closed-by-user') {
         setAuthError('Cerraste la ventana de Google antes de completar el ingreso.');
       } else if (code === 'auth/cancelled-popup-request') {
@@ -444,8 +491,9 @@ export default function App() {
   const handleEmailSignIn = async (email: string, password: string) => {
     setAuthError(null);
     setAuthNotice(null);
+    const cleanEmail = email.trim().toLowerCase();
     try {
-      await signInWithEmailAndPassword(auth, email, password);
+      await signInWithEmailAndPassword(auth, cleanEmail, password);
       setShowLoginScreen(false);
     } catch (err: any) {
       const code = String(err?.code || '');
@@ -454,7 +502,7 @@ export default function App() {
         code === 'auth/wrong-password' ||
         code === 'auth/user-not-found'
       ) {
-        setAuthError('Correo o contraseña incorrectos.');
+        setAuthError('Correo o contraseña incorrectos (si aún no creaste clave, pulsa Regístrate o entra con Google).');
       } else if (code === 'auth/invalid-email') {
         setAuthError('Ingresa un correo electrónico válido.');
       } else if (code === 'auth/too-many-requests') {
@@ -474,8 +522,9 @@ export default function App() {
   const handleEmailRegister = async (email: string, password: string) => {
     setAuthError(null);
     setAuthNotice(null);
+    const cleanEmail = email.trim().toLowerCase();
     try {
-      const cred = await createUserWithEmailAndPassword(auth, email, password);
+      const cred = await createUserWithEmailAndPassword(auth, cleanEmail, password);
       try {
         await sendEmailVerification(cred.user);
       } catch {
@@ -491,6 +540,8 @@ export default function App() {
         setAuthError('La contraseña debe tener al menos 6 caracteres.');
       } else if (code === 'auth/invalid-email') {
         setAuthError('Ingresa un correo electrónico válido.');
+      } else if (code === 'auth/too-many-requests') {
+        setAuthError('Demasiados intentos seguidos. Espera unos minutos antes de reintentar.');
       } else if (code === 'auth/operation-not-allowed') {
         setAuthError(
           'El registro con Email/Contraseña aún no está habilitado en Firebase Authentication (Sign-in method).'
@@ -504,8 +555,9 @@ export default function App() {
   const handleResetPassword = async (email: string) => {
     setAuthError(null);
     setAuthNotice(null);
+    const cleanEmail = email.trim().toLowerCase();
     try {
-      await sendPasswordResetEmail(auth, email);
+      await sendPasswordResetEmail(auth, cleanEmail);
       setAuthNotice(
         'Te enviamos un enlace a tu correo para crear o restablecer tu contraseña. Revisa Spam si no lo ves.'
       );
@@ -515,6 +567,8 @@ export default function App() {
         setAuthError('No existe una cuenta registrada con ese correo todavía. Regístrate primero o escríbenos por WhatsApp.');
       } else if (code === 'auth/invalid-email') {
         setAuthError('Ingresa un correo electrónico válido.');
+      } else if (code === 'auth/too-many-requests') {
+        setAuthError('Demasiados intentos seguidos. Espera unos minutos antes de reintentar.');
       } else if (code === 'auth/operation-not-allowed') {
         setAuthError('Email/Contraseña no está habilitado en Firebase Authentication.');
       } else {
