@@ -135,13 +135,36 @@ export const LibraryPanel: React.FC<LibraryPanelProps> = ({
   const [isDraggingFiles, setIsDraggingFiles] = useState(false);
   const [driveSortByBpm, setDriveSortByBpm] = useState(false);
   const [driveRecommendMode, setDriveRecommendMode] = useState(false);
+  const [strictExactBpm, setStrictExactBpm] = useState(true);
   const [driveRecommendTargetOverride, setDriveRecommendTargetOverride] = useState<DeckId | null>(null);
+  const [lastStartedDeck, setLastStartedDeck] = useState<DeckId>('A');
+  const prevAPlayingRef = useRef(false);
+  const prevBPlayingRef = useRef(false);
   const driveSearchTimerRef = useRef<number | null>(null);
   const lastDriveSearchedQueryRef = useRef('');
 
+  // Auto-detect whichever deck (A or B) starts playing live and reset manual override
+  useEffect(() => {
+    const aPlaying = Boolean(deckAStatus?.isPlaying);
+    const bPlaying = Boolean(deckBStatus?.isPlaying);
+    const aJustStarted = aPlaying && !prevAPlayingRef.current;
+    const bJustStarted = bPlaying && !prevBPlayingRef.current;
+
+    if (aJustStarted) {
+      setLastStartedDeck('A');
+      setDriveRecommendTargetOverride(null);
+    } else if (bJustStarted) {
+      setLastStartedDeck('B');
+      setDriveRecommendTargetOverride(null);
+    }
+
+    prevAPlayingRef.current = aPlaying;
+    prevBPlayingRef.current = bPlaying;
+  }, [deckAStatus?.isPlaying, deckBStatus?.isPlaying]);
+
   // Resolve active live source deck & target deck (A <-> B) for BPM recommendations
   const recommendationContext = useMemo(() => {
-    let sourceDeck: DeckId = 'A';
+    let sourceDeck: DeckId = lastStartedDeck;
     if (driveRecommendTargetOverride === 'A') {
       sourceDeck = 'B';
     } else if (driveRecommendTargetOverride === 'B') {
@@ -150,6 +173,8 @@ export const LibraryPanel: React.FC<LibraryPanelProps> = ({
       sourceDeck = 'A';
     } else if (deckBStatus?.isPlaying && !deckAStatus?.isPlaying) {
       sourceDeck = 'B';
+    } else if (deckAStatus?.isPlaying && deckBStatus?.isPlaying) {
+      sourceDeck = lastStartedDeck;
     } else if (deckAStatus?.trackName && !deckBStatus?.trackName) {
       sourceDeck = 'A';
     } else if (deckBStatus?.trackName && !deckAStatus?.trackName) {
@@ -158,8 +183,9 @@ export const LibraryPanel: React.FC<LibraryPanelProps> = ({
 
     const targetDeck: DeckId = sourceDeck === 'A' ? 'B' : 'A';
     const src = sourceDeck === 'A' ? deckAStatus : deckBStatus;
-    const referenceBpm =
+    const rawBpm =
       src?.bpm || (src?.trackName ? extractBpmFromTrackName(src.trackName) : null);
+    const referenceBpm = rawBpm ? Math.round(rawBpm) : null;
 
     return {
       sourceDeck,
@@ -168,7 +194,7 @@ export const LibraryPanel: React.FC<LibraryPanelProps> = ({
       referenceBpm,
       isPlaying: Boolean(src?.isPlaying),
     };
-  }, [deckAStatus, deckBStatus, driveRecommendTargetOverride]);
+  }, [deckAStatus, deckBStatus, driveRecommendTargetOverride, lastStartedDeck]);
 
   const displayedDriveTracks = useMemo(
     () =>
@@ -177,6 +203,7 @@ export const LibraryPanel: React.FC<LibraryPanelProps> = ({
         recommendMode: driveRecommendMode,
         referenceBpm: recommendationContext.referenceBpm,
         excludeTrackName: recommendationContext.sourceTrackName,
+        strictExactOnly: strictExactBpm,
       }),
     [
       driveFiles,
@@ -184,6 +211,7 @@ export const LibraryPanel: React.FC<LibraryPanelProps> = ({
       driveRecommendMode,
       recommendationContext.referenceBpm,
       recommendationContext.sourceTrackName,
+      strictExactBpm,
     ]
   );
 
@@ -916,57 +944,130 @@ export const LibraryPanel: React.FC<LibraryPanelProps> = ({
                             : 'bg-[#22D3EE]/20 border-[#22D3EE] text-[#67E8F9] shadow-[0_0_10px_rgba(34,211,238,0.25)]'
                           : 'bg-[#0A0B0F] border-[#22D3EE]/45 text-[#22D3EE] hover:bg-[#22D3EE]/10'
                       }`}
-                      title="Recomendar en vivo canciones de tu Drive según el BPM que está sonando para mezclar al otro lado"
+                      title="Detectar el BPM que está sonando en A o B y recomendar temas con el mismo BPM para el otro lado"
                     >
                       <Disc3 className="w-3 h-3 shrink-0" />
                       <span>
                         {recommendationContext.referenceBpm
                           ? `Recomendado BPM (${recommendationContext.referenceBpm}) → ${recommendationContext.targetDeck}`
-                          : `Recomendado según BPM → ${recommendationContext.targetDeck}`}
+                          : `Recomendado BPM → ${recommendationContext.targetDeck}`}
                       </span>
                     </button>
 
                     {driveRecommendMode && (
-                      <button
-                        type="button"
-                        onClick={() =>
-                          setDriveRecommendTargetOverride(
-                            recommendationContext.targetDeck === 'B' ? 'A' : 'B'
-                          )
-                        }
-                        className="inline-flex items-center gap-1 px-2 py-1 rounded bg-[#0A0B0F] hover:bg-white/5 border border-white/15 text-[10px] font-bold text-slate-300 cursor-pointer whitespace-nowrap"
-                        title="Cambiar dirección de mezcla (Deck A ↔ Deck B)"
-                      >
-                        <ArrowLeftRight className="w-3 h-3 text-[#FACC15]" />
-                        <span>
-                          {recommendationContext.sourceDeck} → {recommendationContext.targetDeck}
-                        </span>
-                      </button>
+                      <>
+                        <button
+                          type="button"
+                          onClick={() =>
+                            setDriveRecommendTargetOverride(
+                              recommendationContext.targetDeck === 'B' ? 'A' : 'B'
+                            )
+                          }
+                          className="inline-flex items-center gap-1 px-2 py-1 rounded bg-[#0A0B0F] hover:bg-white/5 border border-white/15 text-[10px] font-bold text-slate-300 cursor-pointer whitespace-nowrap"
+                          title="Cambiar dirección de mezcla (Deck A ↔ Deck B)"
+                        >
+                          <ArrowLeftRight className="w-3 h-3 text-[#FACC15]" />
+                          <span>
+                            {recommendationContext.sourceDeck} → {recommendationContext.targetDeck}
+                          </span>
+                        </button>
+
+                        <button
+                          type="button"
+                          onClick={() => setStrictExactBpm((v) => !v)}
+                          className={`inline-flex items-center gap-1 px-2 py-1 rounded border text-[10px] font-bold cursor-pointer whitespace-nowrap transition-colors ${
+                            strictExactBpm
+                              ? 'bg-[#34D399]/15 border-[#34D399] text-[#34D399]'
+                              : 'bg-[#22D3EE]/15 border-[#22D3EE] text-[#67E8F9]'
+                          }`}
+                          title="Alternar entre mostrar solo el mismo BPM exacto o incluir cercanos (±2 BPM)"
+                        >
+                          <span>{strictExactBpm ? 'Solo mismo BPM' : 'Cercanos ±2 BPM'}</span>
+                        </button>
+
+                        {recommendationContext.referenceBpm && (
+                          <button
+                            type="button"
+                            onClick={() => {
+                              const q = String(recommendationContext.referenceBpm);
+                              if (driveSearchTimerRef.current) {
+                                window.clearTimeout(driveSearchTimerRef.current);
+                              }
+                              onSelectDriveFolder(null);
+                              setDriveQuery(q);
+                              lastDriveSearchedQueryRef.current = q;
+                              onSearchDrive(q, null);
+                            }}
+                            className="inline-flex items-center gap-1 px-2 py-1 rounded bg-[#0A0B0F] hover:bg-[#34D399]/15 border border-[#34D399]/50 text-[10px] font-bold text-[#34D399] cursor-pointer whitespace-nowrap transition-colors"
+                            title={`Buscar canciones con ${recommendationContext.referenceBpm} BPM en todo tu Google Drive`}
+                          >
+                            <Search className="w-2.5 h-2.5 shrink-0" />
+                            <span>Buscar {recommendationContext.referenceBpm} en todo Drive</span>
+                          </button>
+                        )}
+                      </>
                     )}
                   </div>
 
                   {driveRecommendMode && (
                     <div className="px-2.5 py-1.5 rounded bg-[#0A0B0F] border border-white/10 text-[11px] flex flex-wrap items-center justify-between gap-1.5 min-w-0">
                       {recommendationContext.referenceBpm ? (
-                        <span className="text-slate-300 truncate">
-                          Mezcla en vivo para{' '}
+                        <span className="text-slate-200 leading-snug">
+                          Detectado en{' '}
                           <strong
                             className={
-                              recommendationContext.targetDeck === 'B'
-                                ? 'text-[#EC287B]'
-                                : 'text-[#22D3EE]'
+                              recommendationContext.sourceDeck === 'A'
+                                ? 'text-[#22D3EE]'
+                                : 'text-[#EC287B]'
                             }
                           >
-                            Deck {recommendationContext.targetDeck}
+                            Deck {recommendationContext.sourceDeck}
                           </strong>{' '}
-                          · Base Deck {recommendationContext.sourceDeck}:{' '}
+                          (
                           <strong className="text-[#FACC15]">
                             {recommendationContext.referenceBpm} BPM
                           </strong>
+                          ):{' '}
+                          {strictExactBpm ? (
+                            <>
+                              <strong className="text-[#34D399]">
+                                {displayedDriveTracks.length} tema
+                                {displayedDriveTracks.length === 1 ? '' : 's'}
+                              </strong>{' '}
+                              con el <strong>mismo BPM ({recommendationContext.referenceBpm})</strong>{' '}
+                              que {displayedDriveTracks.length === 1 ? 'encaja' : 'encajan'} para{' '}
+                              <strong
+                                className={
+                                  recommendationContext.targetDeck === 'B'
+                                    ? 'text-[#EC287B]'
+                                    : 'text-[#22D3EE]'
+                                }
+                              >
+                                Deck {recommendationContext.targetDeck}
+                              </strong>
+                            </>
+                          ) : (
+                            <>
+                              <strong className="text-[#67E8F9]">
+                                {displayedDriveTracks.length} tema
+                                {displayedDriveTracks.length === 1 ? '' : 's'}
+                              </strong>{' '}
+                              ({recommendationContext.referenceBpm} ±2 BPM) para{' '}
+                              <strong
+                                className={
+                                  recommendationContext.targetDeck === 'B'
+                                    ? 'text-[#EC287B]'
+                                    : 'text-[#22D3EE]'
+                                }
+                              >
+                                Deck {recommendationContext.targetDeck}
+                              </strong>
+                            </>
+                          )}
                         </span>
                       ) : (
                         <span className="text-amber-300">
-                          Carga o reproduce una pista en Deck A o Deck B para recomendar temas que encajen con su BPM.
+                          Reproduce o carga un tema en Deck A o Deck B para detectar su BPM y ver los temas del mismo BPM que encajan.
                         </span>
                       )}
                     </div>
@@ -1118,6 +1219,46 @@ export const LibraryPanel: React.FC<LibraryPanelProps> = ({
                       Buscar en todo Google Drive
                     </button>
                   )}
+                </div>
+              ) : driveRecommendMode &&
+                recommendationContext.referenceBpm &&
+                displayedDriveTracks.length === 0 ? (
+                <div className="h-52 flex flex-col items-center justify-center text-center p-6">
+                  <Disc3 className="w-7 h-7 text-[#FACC15] mb-2" />
+                  <p className="text-sm font-bold text-slate-100">
+                    No hay temas con exactamente {recommendationContext.referenceBpm} BPM en esta vista
+                  </p>
+                  <p className="text-xs text-slate-400 mt-1 max-w-md">
+                    Busca &quot;{recommendationContext.referenceBpm}&quot; en todas tus carpetas de Google Drive o activa los temas cercanos (±2 BPM).
+                  </p>
+                  <div className="mt-3 flex flex-wrap items-center justify-center gap-2">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const q = String(recommendationContext.referenceBpm);
+                        if (driveSearchTimerRef.current) {
+                          window.clearTimeout(driveSearchTimerRef.current);
+                        }
+                        onSelectDriveFolder(null);
+                        setDriveQuery(q);
+                        lastDriveSearchedQueryRef.current = q;
+                        onSearchDrive(q, null);
+                      }}
+                      className="px-3 py-1.5 rounded bg-[#34D399]/15 hover:bg-[#34D399]/25 border border-[#34D399]/60 text-xs font-bold text-[#34D399] cursor-pointer transition-colors inline-flex items-center gap-1.5"
+                    >
+                      <Search className="w-3.5 h-3.5" />
+                      <span>Buscar {recommendationContext.referenceBpm} BPM en todo Drive</span>
+                    </button>
+                    {strictExactBpm && (
+                      <button
+                        type="button"
+                        onClick={() => setStrictExactBpm(false)}
+                        className="px-3 py-1.5 rounded bg-[#22D3EE]/15 hover:bg-[#22D3EE]/25 border border-[#22D3EE]/60 text-xs font-bold text-[#67E8F9] cursor-pointer transition-colors"
+                      >
+                        Ver cercanos (±2 BPM)
+                      </button>
+                    )}
+                  </div>
                 </div>
               ) : (
                 <div className="divide-y divide-white/5 min-w-0">

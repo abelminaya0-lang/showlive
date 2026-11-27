@@ -70,16 +70,23 @@ export function evaluateBpmMatch(
   }
 
   const directDelta = Math.abs(candidateBpm - referenceBpm);
-  const doubleDelta = Math.abs(candidateBpm * 2 - referenceBpm);
-  const halfDelta = Math.abs(candidateBpm / 2 - referenceBpm);
-  const harmDelta = Math.min(doubleDelta, halfDelta);
+
+  if (directDelta === 0) {
+    return {
+      bpm: candidateBpm,
+      tier: 'exact',
+      delta: 0,
+      label: `MISMO BPM · ${candidateBpm}`,
+      score: 0,
+    };
+  }
 
   if (directDelta <= 2) {
     return {
       bpm: candidateBpm,
-      tier: 'exact',
+      tier: 'good',
       delta: directDelta,
-      label: directDelta === 0 ? 'BPM EXACTO' : `±${directDelta} BPM`,
+      label: `±${directDelta} BPM`,
       score: directDelta,
     };
   }
@@ -87,30 +94,10 @@ export function evaluateBpmMatch(
   if (directDelta <= 6) {
     return {
       bpm: candidateBpm,
-      tier: 'good',
-      delta: directDelta,
-      label: `ENCAJA ±${directDelta}`,
-      score: directDelta,
-    };
-  }
-
-  if (harmDelta <= 3) {
-    return {
-      bpm: candidateBpm,
-      tier: 'harmonic',
-      delta: Math.round(harmDelta),
-      label: candidateBpm > referenceBpm ? 'DOBLE BPM' : 'MITAD BPM',
-      score: 6.5 + harmDelta,
-    };
-  }
-
-  if (directDelta <= 12) {
-    return {
-      bpm: candidateBpm,
       tier: 'near',
       delta: directDelta,
       label: `±${directDelta} BPM`,
-      score: directDelta + 3,
+      score: directDelta + 2,
     };
   }
 
@@ -136,9 +123,16 @@ export function buildDriveTrackList(
     recommendMode: boolean;
     referenceBpm: number | null;
     excludeTrackName?: string | null;
+    strictExactOnly?: boolean;
   }
 ): DriveTrackWithBpm[] {
-  const { sortByBpm, recommendMode, referenceBpm, excludeTrackName } = options;
+  const {
+    sortByBpm,
+    recommendMode,
+    referenceBpm,
+    excludeTrackName,
+    strictExactOnly = true,
+  } = options;
 
   const enriched: DriveTrackWithBpm[] = files.map((file) => {
     const bpm = extractBpmFromTrackName(file.name);
@@ -153,20 +147,14 @@ export function buildDriveTrackList(
       if (excludeLower && item.file.name.toLowerCase() === excludeLower) {
         return false;
       }
-      return item.match && item.match.tier !== 'none';
+      if (!item.match) return false;
+      if (strictExactOnly) {
+        return item.match.tier === 'exact';
+      }
+      return item.match.tier === 'exact' || item.match.tier === 'good';
     });
 
-    if (compatible.length > 0) {
-      return compatible.sort((a, b) => {
-        const sa = a.match?.score ?? 9999;
-        const sb = b.match?.score ?? 9999;
-        if (sa !== sb) return sa - sb;
-        return a.file.name.localeCompare(b.file.name);
-      });
-    }
-
-    // If no tracks match within tight range, still sort closest BPMs to the top
-    return enriched.sort((a, b) => {
+    return compatible.sort((a, b) => {
       const sa = a.match?.score ?? 9999;
       const sb = b.match?.score ?? 9999;
       if (sa !== sb) return sa - sb;
