@@ -145,19 +145,19 @@ export const LibraryPanel: React.FC<LibraryPanelProps> = ({
   return (
     <div className="flex-1 min-w-0 bg-[#101218] border border-white/15 rounded-lg flex flex-col md:flex-row overflow-hidden">
       {/* Left Sidebar (Desktop) / Top Compact Bar (Mobile): LIBRARY & PLAYLISTS */}
-      <aside className="w-full md:w-[195px] shrink-0 bg-[#0A0B0F] border-b md:border-b-0 md:border-r border-white/10 p-2 md:p-2.5 flex flex-col gap-2 md:gap-4 select-none overflow-y-auto max-h-[170px] md:max-h-none">
+      <aside className="w-full md:w-[195px] shrink-0 bg-[#0A0B0F] border-b md:border-b-0 md:border-r border-white/10 p-2.5 flex flex-col gap-2 md:gap-4 select-none overflow-y-auto max-h-[155px] md:max-h-none">
         <div className="flex md:flex-col items-center md:items-stretch justify-between gap-2">
           <p className="hidden md:block text-[10px] font-extrabold tracking-wider uppercase text-[#FACC15] px-2 mb-1">
             Library
           </p>
-          <div className="flex md:flex-col gap-1 flex-1 md:flex-none">
+          <div className="flex md:flex-col gap-1.5 md:gap-1 flex-1 md:flex-none">
             <button
               type="button"
               onClick={() => {
                 onSelectTab('local');
                 onSelectPlaylist(null);
               }}
-              className={`flex-1 md:flex-none flex items-center justify-center md:justify-start gap-1.5 md:gap-2 px-2.5 py-2 rounded-md text-xs font-bold transition-all cursor-pointer ${
+              className={`flex-1 md:flex-none min-h-[38px] md:min-h-0 flex items-center justify-center md:justify-start gap-1.5 md:gap-2 px-2.5 py-2 rounded-md text-xs font-bold transition-all cursor-pointer ${
                 activeTab === 'local' && !selectedPlaylistId
                   ? 'bg-[#141720] border-2 border-[#22D3EE] text-[#22D3EE] shadow-[0_0_12px_rgba(34,211,238,0.2)]'
                   : 'text-slate-300 hover:bg-white/5 border border-transparent'
@@ -170,24 +170,24 @@ export const LibraryPanel: React.FC<LibraryPanelProps> = ({
             <button
               type="button"
               onClick={() => onSelectTab('youtube')}
-              className={`flex-1 md:flex-none flex items-center justify-center md:justify-start gap-1.5 md:gap-2 px-2.5 py-2 rounded-md text-xs font-bold transition-all cursor-pointer ${
+              className={`flex-1 md:flex-none min-h-[38px] md:min-h-0 flex items-center justify-center md:justify-start gap-1.5 md:gap-2 px-2.5 py-2 rounded-md text-xs font-bold transition-all cursor-pointer ${
                 activeTab === 'youtube'
                   ? 'bg-[#141720] border-2 border-[#EC287B] text-[#EC287B] shadow-[0_0_12px_rgba(236,40,123,0.25)]'
                   : 'text-slate-300 hover:bg-white/5 border border-transparent'
               }`}
             >
               <PlayCircle className="w-3.5 h-3.5 shrink-0" />
-              <span className="truncate">YouTube Karaoke</span>
+              <span className="truncate">YouTube</span>
             </button>
           </div>
 
           <button
             type="button"
             onClick={() => folderInputRef.current?.click()}
-            className="md:hidden flex items-center gap-1 px-2.5 py-2 rounded-md bg-[#141720] border border-[#FACC15]/55 text-[11px] font-bold text-[#FACC15] cursor-pointer shrink-0"
+            className="md:hidden min-h-[38px] flex items-center gap-1 px-3 py-2 rounded-md bg-[#141720] border border-[#FACC15]/55 text-xs font-bold text-[#FACC15] cursor-pointer shrink-0"
             title="Cargar Carpeta"
           >
-            <FolderPlus className="w-3.5 h-3.5 text-[#FACC15]" />
+            <FolderPlus className="w-4 h-4 text-[#FACC15]" />
             <span>Carpeta</span>
           </button>
         </div>
@@ -326,8 +326,8 @@ export const LibraryPanel: React.FC<LibraryPanelProps> = ({
         {activeTab === 'local' ? (
           <>
             {/* Top Bar of Track Table */}
-            <div className="flex flex-wrap items-center justify-between gap-2 px-4 py-2.5 border-b border-white/10 bg-[#101218]">
-              <div className="flex items-center gap-3 flex-wrap">
+            <div className="flex flex-wrap items-center justify-between gap-2 px-3 md:px-4 py-2.5 border-b border-white/10 bg-[#101218]">
+              <div className="flex items-center gap-2 md:gap-3 flex-wrap w-full md:w-auto">
                 <h2 className="font-display text-sm font-extrabold text-[#FACC15] whitespace-nowrap">
                   {selectedPlaylistId
                     ? playlists.find((p) => p.id === selectedPlaylistId)?.name ||
@@ -338,7 +338,7 @@ export const LibraryPanel: React.FC<LibraryPanelProps> = ({
                 <button
                   type="button"
                   onClick={() => fileInputRef.current?.click()}
-                  className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded bg-[#0A0B0F] hover:bg-[#181C26] border border-[#22D3EE]/55 text-xs font-bold text-[#22D3EE] cursor-pointer transition-colors whitespace-nowrap"
+                  className="inline-flex items-center gap-1.5 px-3 py-1.5 md:px-2.5 md:py-1 rounded bg-[#0A0B0F] hover:bg-[#181C26] border border-[#22D3EE]/55 text-xs font-bold text-[#22D3EE] cursor-pointer transition-colors whitespace-nowrap"
                 >
                   <Upload className="w-3.5 h-3.5" />
                   <span>Subir Música</span>
@@ -348,7 +348,7 @@ export const LibraryPanel: React.FC<LibraryPanelProps> = ({
                   <button
                     type="button"
                     onClick={onClearLibrary}
-                    className="inline-flex items-center gap-1 px-2 py-1 rounded bg-[#0A0B0F] hover:bg-[#EC287B]/20 border border-white/15 hover:border-[#EC287B]/60 text-xs font-medium text-slate-400 hover:text-[#EC287B] cursor-pointer transition-colors whitespace-nowrap"
+                    className="inline-flex items-center gap-1 px-2.5 py-1.5 md:px-2 md:py-1 rounded bg-[#0A0B0F] hover:bg-[#EC287B]/20 border border-white/15 hover:border-[#EC287B]/60 text-xs font-medium text-slate-400 hover:text-[#EC287B] cursor-pointer transition-colors whitespace-nowrap"
                     title="Limpiar todas las pistas y empezar desde cero"
                   >
                     <Trash2 className="w-3 h-3" />
@@ -357,14 +357,14 @@ export const LibraryPanel: React.FC<LibraryPanelProps> = ({
                 )}
 
                 {/* Inline compact search */}
-                <div className="relative">
+                <div className="relative flex-1 md:flex-none min-w-[130px]">
                   <Search className="w-3.5 h-3.5 text-slate-500 absolute left-2.5 top-1/2 -translate-y-1/2" />
                   <input
                     type="text"
                     value={searchFilter}
                     onChange={(e) => setSearchFilter(e.target.value)}
                     placeholder="Filtrar pista..."
-                    className="pl-7 pr-2.5 py-1 w-36 sm:w-44 rounded bg-[#0A0B0F] border border-white/15 text-xs text-slate-200 placeholder:text-slate-500 focus:outline-none focus:border-[#22D3EE]"
+                    className="pl-7 pr-2.5 py-1.5 md:py-1 w-full md:w-44 rounded bg-[#0A0B0F] border border-white/15 text-xs text-slate-200 placeholder:text-slate-500 focus:outline-none focus:border-[#22D3EE]"
                   />
                 </div>
               </div>
@@ -372,17 +372,17 @@ export const LibraryPanel: React.FC<LibraryPanelProps> = ({
               <button
                 type="button"
                 onClick={onOpenStemModal}
-                className="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-md bg-[#FACC15] hover:bg-[#FDE047] text-[#090A0E] text-xs font-extrabold shadow-[0_0_14px_rgba(250,204,21,0.35)] cursor-pointer transition-all whitespace-nowrap"
+                className="w-full md:w-auto inline-flex items-center justify-center gap-1.5 px-3.5 py-2 md:py-1.5 rounded-md bg-[#FACC15] hover:bg-[#FDE047] text-[#090A0E] text-xs font-extrabold shadow-[0_0_14px_rgba(250,204,21,0.35)] cursor-pointer transition-all whitespace-nowrap"
               >
                 <Wand2 className="w-3.5 h-3.5" />
                 <span>Separar Pista (IA)</span>
               </button>
             </div>
 
-            {/* Table Header */}
-            <div className="grid grid-cols-12 gap-2 px-4 py-2 text-[10px] font-bold tracking-wider uppercase text-slate-400 border-b border-white/10 bg-[#0A0B0F] shrink-0">
-              <div className="col-span-7 sm:col-span-8">Nombre</div>
-              <div className="col-span-2 sm:col-span-1 text-center">Letra IA</div>
+            {/* Table Header (Desktop) */}
+            <div className="hidden md:grid grid-cols-12 gap-2 px-4 py-2 text-[10px] font-bold tracking-wider uppercase text-slate-400 border-b border-white/10 bg-[#0A0B0F] shrink-0">
+              <div className="col-span-8">Nombre</div>
+              <div className="col-span-1 text-center">Letra IA</div>
               <div className="col-span-3 text-right">Acciones</div>
             </div>
 
@@ -422,68 +422,71 @@ export const LibraryPanel: React.FC<LibraryPanelProps> = ({
                 visibleTracks.map((track) => (
                   <div
                     key={track.id}
-                    className="grid grid-cols-12 gap-2 px-4 py-2 items-center hover:bg-white/[0.03] transition-colors group"
+                    className="flex flex-col md:grid md:grid-cols-12 gap-2 px-3 md:px-4 py-3 md:py-2 md:items-center hover:bg-white/[0.03] transition-colors group"
                   >
-                    <div className="col-span-7 sm:col-span-8 min-w-0 flex items-center gap-2">
-                      <span className="text-xs font-medium text-slate-100 truncate">
-                        {track.name}
-                      </span>
+                    <div className="flex items-center justify-between gap-2 md:contents">
+                      <div className="md:col-span-8 min-w-0 flex items-center gap-2 flex-1">
+                        <span className="text-xs sm:text-sm md:text-xs font-medium text-slate-100 truncate">
+                          {track.name}
+                        </span>
+                      </div>
+
+                      <div className="md:col-span-1 flex justify-center shrink-0">
+                        <button
+                          type="button"
+                          onClick={() => onOpenAiLyrics(track)}
+                          className={`px-2.5 py-1 md:px-2 md:py-0.5 rounded text-[11px] md:text-[10px] font-bold border transition-colors cursor-pointer whitespace-nowrap ${
+                            track.hasAiLyrics
+                              ? 'bg-emerald-500/20 border-emerald-500/50 text-emerald-300 hover:bg-emerald-500/30'
+                              : 'bg-[#151823] border-white/10 text-slate-400 hover:text-white hover:border-purple-400/50'
+                          }`}
+                          title={
+                            track.hasAiLyrics
+                              ? 'Ver o editar Letra IA sincronizada'
+                              : 'Generar Letra Karaoke con Gemini IA'
+                          }
+                        >
+                          <span className="md:hidden mr-1">Letra:</span>
+                          {track.hasAiLyrics ? 'SI' : 'NO'}
+                        </button>
+                      </div>
                     </div>
 
-                    <div className="col-span-2 sm:col-span-1 flex justify-center">
-                      <button
-                        type="button"
-                        onClick={() => onOpenAiLyrics(track)}
-                        className={`px-2 py-0.5 rounded text-[10px] font-bold border transition-colors cursor-pointer ${
-                          track.hasAiLyrics
-                            ? 'bg-emerald-500/20 border-emerald-500/50 text-emerald-300 hover:bg-emerald-500/30'
-                            : 'bg-[#151823] border-white/10 text-slate-400 hover:text-white hover:border-purple-400/50'
-                        }`}
-                        title={
-                          track.hasAiLyrics
-                            ? 'Ver o editar Letra IA sincronizada'
-                            : 'Generar Letra Karaoke con Gemini IA'
-                        }
-                      >
-                        {track.hasAiLyrics ? 'SI' : 'NO'}
-                      </button>
-                    </div>
-
-                    <div className="col-span-3 flex items-center justify-end gap-1.5">
+                    <div className="md:col-span-3 flex items-center justify-end gap-2 md:gap-1.5">
                       <button
                         type="button"
                         onClick={() => onExportTrackOrShow(track)}
-                        className="w-7 h-7 rounded bg-[#141824] hover:bg-[#1E2436] border border-white/10 text-slate-300 flex items-center justify-center cursor-pointer"
+                        className="w-10 h-9 md:w-7 md:h-7 rounded-lg md:rounded bg-[#141824] hover:bg-[#1E2436] border border-white/15 md:border-white/10 text-slate-300 flex items-center justify-center cursor-pointer"
                         title="Descargar letra / exportar preset .djlurivera"
                       >
-                        <Download className="w-3.5 h-3.5" />
+                        <Download className="w-4 h-4 md:w-3.5 md:h-3.5" />
                       </button>
 
                       <button
                         type="button"
                         onClick={() => onLoadToDeck(track, 'A')}
-                        className="w-7 h-7 rounded bg-[#0A0B0F] hover:bg-[#22D3EE] border border-[#22D3EE]/70 text-[#22D3EE] hover:text-[#090A0E] text-xs font-extrabold flex items-center justify-center transition-colors cursor-pointer"
+                        className="flex-1 md:flex-none h-9 md:w-7 md:h-7 rounded-lg md:rounded bg-[#0A0B0F] hover:bg-[#22D3EE] border border-[#22D3EE]/70 text-[#22D3EE] hover:text-[#090A0E] text-xs font-extrabold flex items-center justify-center transition-colors cursor-pointer"
                         title="Cargar en Deck A"
                       >
-                        A
+                        <span className="md:hidden mr-1">Deck</span>A
                       </button>
 
                       <button
                         type="button"
                         onClick={() => onLoadToDeck(track, 'B')}
-                        className="w-7 h-7 rounded bg-[#0A0B0F] hover:bg-[#EC287B] border border-[#EC287B]/70 text-[#EC287B] hover:text-white text-xs font-extrabold flex items-center justify-center transition-colors cursor-pointer"
+                        className="flex-1 md:flex-none h-9 md:w-7 md:h-7 rounded-lg md:rounded bg-[#0A0B0F] hover:bg-[#EC287B] border border-[#EC287B]/70 text-[#EC287B] hover:text-white text-xs font-extrabold flex items-center justify-center transition-colors cursor-pointer"
                         title="Cargar en Deck B"
                       >
-                        B
+                        <span className="md:hidden mr-1">Deck</span>B
                       </button>
 
                       <button
                         type="button"
                         onClick={() => onDeleteTrack(track.id)}
-                        className="w-7 h-7 rounded bg-[#141720] hover:bg-red-600/25 border border-white/10 hover:border-red-500/50 text-slate-400 hover:text-red-400 flex items-center justify-center transition-colors cursor-pointer"
+                        className="w-10 h-9 md:w-7 md:h-7 rounded-lg md:rounded bg-[#141720] hover:bg-red-600/25 border border-white/15 md:border-white/10 hover:border-red-500/50 text-slate-400 hover:text-red-400 flex items-center justify-center transition-colors cursor-pointer"
                         title="Eliminar pista"
                       >
-                        <Trash2 className="w-3.5 h-3.5" />
+                        <Trash2 className="w-4 h-4 md:w-3.5 md:h-3.5" />
                       </button>
                     </div>
                   </div>

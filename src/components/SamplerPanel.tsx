@@ -187,7 +187,7 @@ export const SamplerPanel: React.FC<SamplerPanelProps> = ({
                 backgroundColor: isEmpty ? '#0A0B0F' : pad.color,
               }}
               className={`relative rounded-md border transition-all flex flex-col items-center justify-center p-1 select-none cursor-pointer overflow-hidden ${
-                isFullPadsView ? 'min-h-[76px]' : 'h-12 sm:h-[52px]'
+                isFullPadsView ? 'min-h-[76px]' : 'h-14 lg:h-[52px]'
               } ${
                 isActive
                   ? 'scale-95 ring-2 ring-[#FACC15] border-[#FACC15] shadow-[0_0_16px_rgba(250,204,21,0.55)]'

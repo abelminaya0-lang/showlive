@@ -225,16 +225,16 @@ class ShowLiveAudioEngine {
     stemInput.connect(stemDry);
     stemDry.connect(stemOutput);
 
-    // 2. Instrumental (Mid-side vocal cancellation + low bass anchor)
+    // 2. Instrumental / Pista Sin Voz (100% Mid-Side center vocal cancellation + mono bass anchor + notched body/air rescue)
     const stemInstGroup = ctx.createGain();
     stemInstGroup.gain.value = 0;
 
     const splitter = ctx.createChannelSplitter(2);
     const merger = ctx.createChannelMerger(2);
     const invR = ctx.createGain();
-    invR.gain.value = -0.88;
+    invR.gain.value = -1.0;
     const invL = ctx.createGain();
-    invL.gain.value = -0.88;
+    invL.gain.value = -1.0;
 
     stemInput.connect(splitter);
     splitter.connect(merger, 0, 0);
@@ -245,16 +245,62 @@ class ShowLiveAudioEngine {
     splitter.connect(invL, 0);
     invL.connect(merger, 0, 1);
 
+    // Stereo sides (L - R / R - L) above 180 Hz at +1.7dB stage presence
+    const sideHighpass = ctx.createBiquadFilter();
+    sideHighpass.type = 'highpass';
+    sideHighpass.frequency.value = 180;
+    sideHighpass.Q.value = 0.707;
+    const sideWidthGain = ctx.createGain();
+    sideWidthGain.gain.value = 1.22;
+    merger.connect(sideHighpass);
+    sideHighpass.connect(sideWidthGain);
+    sideWidthGain.connect(stemInstGroup);
+
+    // Mono-summed Low Bass & Kick punch (< 180 Hz)
+    const bassMonoL = ctx.createGain();
+    bassMonoL.gain.value = 0.5;
+    const bassMonoR = ctx.createGain();
+    bassMonoR.gain.value = 0.5;
     const bassAnchor = ctx.createBiquadFilter();
     bassAnchor.type = 'lowpass';
-    bassAnchor.frequency.value = 190;
+    bassAnchor.frequency.value = 180;
+    bassAnchor.Q.value = 0.707;
     const bassAnchorGain = ctx.createGain();
-    bassAnchorGain.gain.value = 0.85;
-    stemInput.connect(bassAnchor);
+    bassAnchorGain.gain.value = 0.95;
+    splitter.connect(bassMonoL, 0);
+    splitter.connect(bassMonoR, 1);
+    bassMonoL.connect(bassAnchor);
+    bassMonoR.connect(bassAnchor);
     bassAnchor.connect(bassAnchorGain);
     bassAnchorGain.connect(stemInstGroup);
 
-    merger.connect(stemInstGroup);
+    // Vocal-notched harmonic rescue (keeps narrow-stereo/mono backing tracks musical without vocal core)
+    const vocalNotchLow = ctx.createBiquadFilter();
+    vocalNotchLow.type = 'peaking';
+    vocalNotchLow.frequency.value = 950;
+    vocalNotchLow.Q.value = 0.8;
+    vocalNotchLow.gain.value = -15;
+    const vocalNotchHi = ctx.createBiquadFilter();
+    vocalNotchHi.type = 'peaking';
+    vocalNotchHi.frequency.value = 2450;
+    vocalNotchHi.Q.value = 0.9;
+    vocalNotchHi.gain.value = -16;
+    const bodyRescueGain = ctx.createGain();
+    bodyRescueGain.gain.value = 0.18;
+    stemInput.connect(vocalNotchLow);
+    vocalNotchLow.connect(vocalNotchHi);
+    vocalNotchHi.connect(bodyRescueGain);
+    bodyRescueGain.connect(stemInstGroup);
+
+    // High-frequency cymbal & hi-hat shimmer (> 9.2 kHz)
+    const airHighpass = ctx.createBiquadFilter();
+    airHighpass.type = 'highpass';
+    airHighpass.frequency.value = 9200;
+    const airGain = ctx.createGain();
+    airGain.gain.value = 0.3;
+    stemInput.connect(airHighpass);
+    airHighpass.connect(airGain);
+    airGain.connect(stemInstGroup);
     stemInstGroup.connect(stemOutput);
 
     // 3. Vocals (Center bandpass emphasis)

@@ -4,6 +4,7 @@ import {
   Disc3,
   Maximize2,
   Mic,
+  MicOff,
   Minimize2,
   Music,
   Pause,
@@ -227,9 +228,141 @@ export const DeckPanel: React.FC<DeckPanelProps> = ({
     deck.isPlaying && deck.duration > 8 && deck.duration - deck.currentTime <= 15;
 
   const isReverse = deck.id === 'B';
+  const isVocalRemoved = deck.source === 'local' && deck.stemMode === 'instrumental';
+
+  const handleToggleVocalRemoval = () => {
+    if (deck.source === 'local' && deck.track) {
+      onChangeStemMode(deck.stemMode === 'instrumental' ? 'full' : 'instrumental');
+    } else {
+      onChangeStemMode('instrumental');
+    }
+  };
+
+  const KeyPickerPopover = showKeyPicker ? (
+    <div
+      className={`fixed inset-x-3 top-14 z-50 lg:inset-auto lg:top-0 lg:z-40 lg:w-64 rounded-xl bg-[#0D1018] border border-white/15 shadow-2xl p-3 space-y-2.5 ${
+        isReverse ? 'lg:left-[76px]' : 'lg:right-[76px]'
+      }`}
+    >
+      <div className="flex items-center justify-between border-b border-white/10 pb-1.5">
+        <span className="text-xs font-bold text-white">
+          Nota Musical del Cantante
+        </span>
+        <button
+          type="button"
+          onClick={() => setShowKeyPicker(false)}
+          className="px-2 py-1 text-[11px] text-slate-300 hover:text-white cursor-pointer"
+        >
+          Cerrar
+        </button>
+      </div>
+
+      {/* Base key selector */}
+      <div className="space-y-1.5">
+        <div className="flex items-center justify-between text-[11px] text-slate-400">
+          <span>Tono original de la pista:</span>
+          <div className="flex items-center gap-1">
+            <button
+              type="button"
+              onClick={() =>
+                onChangeTrackBaseKey?.(
+                  formatKeyIntl(transposed.base.rootIndex, false)
+                )
+              }
+              className={`px-2 py-1 rounded text-[10px] font-bold cursor-pointer ${
+                !transposed.base.isMinor
+                  ? 'bg-cyan-500/25 text-cyan-300 border border-cyan-500/40'
+                  : 'bg-white/5 text-slate-400'
+              }`}
+            >
+              Mayor
+            </button>
+            <button
+              type="button"
+              onClick={() =>
+                onChangeTrackBaseKey?.(
+                  formatKeyIntl(transposed.base.rootIndex, true)
+                )
+              }
+              className={`px-2 py-1 rounded text-[10px] font-bold cursor-pointer ${
+                transposed.base.isMinor
+                  ? 'bg-cyan-500/25 text-cyan-300 border border-cyan-500/40'
+                  : 'bg-white/5 text-slate-400'
+              }`}
+            >
+              Menor
+            </button>
+          </div>
+        </div>
+
+        <select
+          value={transposed.base.rootIndex}
+          onChange={(e) => {
+            const idx = Number(e.target.value);
+            onChangeTrackBaseKey?.(
+              formatKeyIntl(idx, transposed.base.isMinor)
+            );
+          }}
+          className="w-full px-2.5 py-2 rounded bg-[#141824] border border-white/10 text-xs text-white focus:outline-none"
+        >
+          {CHROMATIC_NOTES.map((n) => (
+            <option key={n.index} value={n.index}>
+              {n.latin}
+              {transposed.base.isMinor ? 'm' : ''} ({n.intl}
+              {transposed.base.isMinor ? 'm' : ''})
+            </option>
+          ))}
+        </select>
+      </div>
+
+      {/* Target singer note buttons */}
+      <div>
+        <p className="text-[11px] text-slate-400 mb-1.5">
+          Cantar en nota:
+        </p>
+        <div className="grid grid-cols-4 gap-1.5">
+          {CHROMATIC_NOTES.map((n) => {
+            const isSelected = transposed.targetIndex === n.index;
+            return (
+              <button
+                key={n.index}
+                type="button"
+                onClick={() => {
+                  const delta = shortestSemitoneDelta(
+                    transposed.base.rootIndex,
+                    n.index
+                  );
+                  onChangePitch(delta);
+                }}
+                className={`py-2 lg:py-1 rounded text-xs lg:text-[10px] font-bold border transition-colors cursor-pointer ${
+                  isSelected
+                    ? 'bg-[#F4256A] border-[#F4256A] text-white'
+                    : 'bg-[#141824] hover:bg-[#1D2333] border-white/10 text-slate-200'
+                }`}
+              >
+                {n.latin}
+                {transposed.base.isMinor ? 'm' : ''}
+              </button>
+            );
+          })}
+        </div>
+      </div>
+
+      <button
+        type="button"
+        onClick={() => {
+          onChangePitch(0);
+          setShowKeyPicker(false);
+        }}
+        className="w-full py-2 lg:py-1.5 rounded bg-[#181D2B] hover:bg-[#22293C] border border-white/10 text-xs lg:text-[10px] font-semibold text-cyan-300 cursor-pointer"
+      >
+        Restablecer Tono Original (0)
+      </button>
+    </div>
+  ) : null;
 
   const PitchAndTransportStrip = (
-    <div className="relative w-[48px] sm:w-[58px] lg:w-[68px] shrink-0 flex flex-col items-center justify-between py-1.5 lg:py-2 px-1 lg:px-1.5 bg-[#101218] border border-white/15 rounded-lg select-none">
+    <div className="hidden lg:flex relative w-[68px] shrink-0 flex-col items-center justify-between py-2 px-1.5 bg-[#101218] border border-white/15 rounded-lg select-none">
       {/* Musical Note & Semitone readout */}
       <div className="flex flex-col items-center w-full">
         <button
@@ -319,11 +452,11 @@ export const DeckPanel: React.FC<DeckPanelProps> = ({
       </div>
 
       {/* CUE & PLAY circular buttons */}
-      <div className="flex flex-col items-center gap-1 lg:gap-1.5 mt-1 lg:mt-1.5">
+      <div className="flex flex-col items-center gap-1.5 mt-1.5">
         <button
           type="button"
           onClick={onCue}
-          className="w-8 h-8 lg:w-9 lg:h-9 rounded-full border-2 border-[#FACC15] bg-[#0A0B0F] hover:bg-[#FACC15]/20 text-[#FACC15] text-[8px] lg:text-[9px] font-extrabold tracking-wide flex items-center justify-center transition-colors cursor-pointer active:scale-95 shadow-[0_0_10px_rgba(250,204,21,0.25)]"
+          className="w-9 h-9 rounded-full border-2 border-[#FACC15] bg-[#0A0B0F] hover:bg-[#FACC15]/20 text-[#FACC15] text-[9px] font-extrabold tracking-wide flex items-center justify-center transition-colors cursor-pointer active:scale-95 shadow-[0_0_10px_rgba(250,204,21,0.25)]"
           title="CUE: Fijar o volver al punto Cue"
         >
           CUE
@@ -332,7 +465,7 @@ export const DeckPanel: React.FC<DeckPanelProps> = ({
         <button
           type="button"
           onClick={onTogglePlay}
-          className={`w-8 h-8 lg:w-9 lg:h-9 rounded-full border-2 flex items-center justify-center transition-all cursor-pointer active:scale-95 ${
+          className={`w-9 h-9 rounded-full border-2 flex items-center justify-center transition-all cursor-pointer active:scale-95 ${
             deck.isPlaying
               ? deck.id === 'A'
                 ? 'border-[#22D3EE] bg-[#22D3EE] text-[#090A0E] shadow-[0_0_16px_rgba(34,211,238,0.6)]'
@@ -344,136 +477,12 @@ export const DeckPanel: React.FC<DeckPanelProps> = ({
           title={deck.isPlaying ? 'Pausar Deck' : 'Reproducir Deck'}
         >
           {deck.isPlaying ? (
-            <Pause className="w-3.5 h-3.5 lg:w-4 lg:h-4 fill-current" />
+            <Pause className="w-4 h-4 fill-current" />
           ) : (
-            <Play className="w-3.5 h-3.5 lg:w-4 lg:h-4 fill-current ml-0.5" />
+            <Play className="w-4 h-4 fill-current ml-0.5" />
           )}
         </button>
       </div>
-
-      {/* Popover: Musical Key / Singer Note Selector */}
-      {showKeyPicker && (
-        <div
-          className={`fixed inset-x-4 top-16 z-50 lg:inset-auto lg:top-0 lg:z-40 lg:w-64 rounded-xl bg-[#0D1018] border border-white/15 shadow-2xl p-3 space-y-2.5 ${
-            isReverse ? 'lg:left-full lg:ml-2' : 'lg:right-full lg:mr-2'
-          }`}
-        >
-          <div className="flex items-center justify-between border-b border-white/10 pb-1.5">
-            <span className="text-[11px] font-bold text-white">
-              Nota Musical del Cantante
-            </span>
-            <button
-              type="button"
-              onClick={() => setShowKeyPicker(false)}
-              className="text-[10px] text-slate-400 hover:text-white cursor-pointer"
-            >
-              Cerrar
-            </button>
-          </div>
-
-          {/* Base key selector */}
-          <div className="space-y-1">
-            <div className="flex items-center justify-between text-[10px] text-slate-400">
-              <span>Tono original de la pista:</span>
-              <div className="flex items-center gap-1">
-                <button
-                  type="button"
-                  onClick={() =>
-                    onChangeTrackBaseKey?.(
-                      formatKeyIntl(transposed.base.rootIndex, false)
-                    )
-                  }
-                  className={`px-1.5 py-0.5 rounded text-[9px] font-bold cursor-pointer ${
-                    !transposed.base.isMinor
-                      ? 'bg-cyan-500/25 text-cyan-300 border border-cyan-500/40'
-                      : 'bg-white/5 text-slate-400'
-                  }`}
-                >
-                  Mayor
-                </button>
-                <button
-                  type="button"
-                  onClick={() =>
-                    onChangeTrackBaseKey?.(
-                      formatKeyIntl(transposed.base.rootIndex, true)
-                    )
-                  }
-                  className={`px-1.5 py-0.5 rounded text-[9px] font-bold cursor-pointer ${
-                    transposed.base.isMinor
-                      ? 'bg-cyan-500/25 text-cyan-300 border border-cyan-500/40'
-                      : 'bg-white/5 text-slate-400'
-                  }`}
-                >
-                  Menor
-                </button>
-              </div>
-            </div>
-
-            <select
-              value={transposed.base.rootIndex}
-              onChange={(e) => {
-                const idx = Number(e.target.value);
-                onChangeTrackBaseKey?.(
-                  formatKeyIntl(idx, transposed.base.isMinor)
-                );
-              }}
-              className="w-full px-2 py-1 rounded bg-[#141824] border border-white/10 text-[11px] text-white focus:outline-none"
-            >
-              {CHROMATIC_NOTES.map((n) => (
-                <option key={n.index} value={n.index}>
-                  {n.latin}
-                  {transposed.base.isMinor ? 'm' : ''} ({n.intl}
-                  {transposed.base.isMinor ? 'm' : ''})
-                </option>
-              ))}
-            </select>
-          </div>
-
-          {/* Target singer note buttons */}
-          <div>
-            <p className="text-[10px] text-slate-400 mb-1.5">
-              Cantar en nota:
-            </p>
-            <div className="grid grid-cols-4 gap-1">
-              {CHROMATIC_NOTES.map((n) => {
-                const isSelected = transposed.targetIndex === n.index;
-                return (
-                  <button
-                    key={n.index}
-                    type="button"
-                    onClick={() => {
-                      const delta = shortestSemitoneDelta(
-                        transposed.base.rootIndex,
-                        n.index
-                      );
-                      onChangePitch(delta);
-                    }}
-                    className={`py-1 rounded text-[10px] font-bold border transition-colors cursor-pointer ${
-                      isSelected
-                        ? 'bg-[#F4256A] border-[#F4256A] text-white'
-                        : 'bg-[#141824] hover:bg-[#1D2333] border-white/10 text-slate-200'
-                    }`}
-                  >
-                    {n.latin}
-                    {transposed.base.isMinor ? 'm' : ''}
-                  </button>
-                );
-              })}
-            </div>
-          </div>
-
-          <button
-            type="button"
-            onClick={() => {
-              onChangePitch(0);
-              setShowKeyPicker(false);
-            }}
-            className="w-full py-1 rounded bg-[#181D2B] hover:bg-[#22293C] border border-white/10 text-[10px] font-semibold text-cyan-300 cursor-pointer"
-          >
-            Restablecer Tono Original (0)
-          </button>
-        </div>
-      )}
     </div>
   );
 
@@ -518,21 +527,41 @@ export const DeckPanel: React.FC<DeckPanelProps> = ({
           </div>
 
           <div className="flex items-center gap-1.5 shrink-0">
-            {/* Stem mode badge if active */}
-            {deck.source === 'local' && deck.track && deck.stemMode !== 'full' && (
+            {/* 1-Tap Vocal Removal (Pista Sin Voz) for Local Tracks */}
+            {deck.source === 'local' && (
               <button
                 type="button"
-                onClick={() => onChangeStemMode('full')}
-                className="px-2 py-0.5 rounded bg-[#FACC15]/15 border border-[#FACC15]/60 text-[10px] font-bold text-[#FACC15] hover:bg-[#FACC15]/30 cursor-pointer whitespace-nowrap"
-                title="Clic para restaurar pista completa"
+                onClick={handleToggleVocalRemoval}
+                className={`inline-flex items-center gap-1 px-2.5 py-0.5 rounded text-[11px] font-extrabold border transition-all cursor-pointer whitespace-nowrap ${
+                  isVocalRemoved
+                    ? 'bg-[#FACC15] border-[#FACC15] text-[#090A0E] shadow-[0_0_12px_rgba(250,204,21,0.55)]'
+                    : 'bg-[#0A0B0F] hover:bg-[#191D29] text-[#FACC15] border-[#FACC15]/50'
+                }`}
+                title={
+                  isVocalRemoved
+                    ? 'Pista Sin Voz activa (clic para restaurar voz original)'
+                    : 'Quitar voz en tiempo real para cantar sobre la pista'
+                }
               >
-                {deck.stemMode === 'instrumental'
-                  ? 'Sin Voz (IA)'
-                  : deck.stemMode === 'vocals'
-                  ? 'Solo Voz'
-                  : 'Ritmo & Bajo'}
+                <MicOff className="w-3 h-3" />
+                <span>{isVocalRemoved ? 'Pista Sin Voz' : 'Quitar Voz'}</span>
               </button>
             )}
+
+            {/* Other stem mode badge if vocals/drums_bass active */}
+            {deck.source === 'local' &&
+              deck.track &&
+              deck.stemMode !== 'full' &&
+              deck.stemMode !== 'instrumental' && (
+                <button
+                  type="button"
+                  onClick={() => onChangeStemMode('full')}
+                  className="px-2 py-0.5 rounded bg-[#FACC15]/15 border border-[#FACC15]/60 text-[10px] font-bold text-[#FACC15] hover:bg-[#FACC15]/30 cursor-pointer whitespace-nowrap"
+                  title="Clic para restaurar pista completa"
+                >
+                  {deck.stemMode === 'vocals' ? 'Solo Voz' : 'Ritmo & Bajo'}
+                </button>
+              )}
 
             {/* Toggle Local / YouTube */}
             <button
@@ -753,23 +782,23 @@ export const DeckPanel: React.FC<DeckPanelProps> = ({
 
               {/* Karaoke Lyrics Overlay */}
               {deck.showLyricsOverlay && lyrics.length > 0 && (
-                <div className="relative z-10 px-2 lg:px-4 py-2 lg:py-3 text-center bg-gradient-to-t from-black/85 via-black/55 to-transparent mt-auto">
+                <div className="relative z-10 px-3 lg:px-4 py-3 text-center bg-gradient-to-t from-black/90 via-black/60 to-transparent mt-auto">
                   {activeLyricIdx > 0 && (
-                    <p className="text-[10px] lg:text-[11px] text-slate-400 truncate">
+                    <p className="text-xs lg:text-[11px] text-slate-400 truncate">
                       {lyrics[activeLyricIdx - 1]?.text}
                     </p>
                   )}
                   <p
-                    className={`font-display font-bold leading-snug my-0.5 lg:my-1 ${
+                    className={`font-display font-bold leading-snug my-1 ${
                       deck.isExpanded
                         ? 'text-2xl sm:text-3xl'
-                        : 'text-xs lg:text-base'
+                        : 'text-base sm:text-lg lg:text-base'
                     } text-white drop-shadow`}
                   >
                     {lyrics[Math.max(0, activeLyricIdx)]?.text}
                   </p>
                   {lyrics[Math.max(0, activeLyricIdx) + 1] && (
-                    <p className="text-[10px] lg:text-[11px] text-slate-400 truncate">
+                    <p className="text-xs lg:text-[11px] text-slate-400 truncate">
                       {lyrics[Math.max(0, activeLyricIdx) + 1]?.text}
                     </p>
                   )}
@@ -781,18 +810,18 @@ export const DeckPanel: React.FC<DeckPanelProps> = ({
       </div>
 
       {/* Progress Scrub Bar & Timestamps */}
-      <div className="mt-1 lg:mt-1.5 flex flex-col lg:flex-row lg:items-center gap-0.5 lg:gap-2.5 px-0.5 lg:px-1">
+      <div className="mt-1.5 flex flex-col lg:flex-row lg:items-center gap-1 lg:gap-2.5 px-1">
         <div className="flex items-center justify-between lg:contents">
-          <span className="text-[10px] lg:text-[11px] font-mono-tabular text-slate-400 lg:w-9 text-left shrink-0">
+          <span className="text-[11px] font-mono-tabular text-slate-300 lg:text-slate-400 lg:w-9 text-left shrink-0">
             {formatTime(deck.currentTime)}
           </span>
-          <span className="text-[10px] lg:text-[11px] font-mono-tabular text-slate-400 lg:hidden shrink-0">
+          <span className="text-[11px] font-mono-tabular text-slate-300 lg:hidden shrink-0">
             {formatTime(deck.duration)}
           </span>
         </div>
 
         <div
-          className="relative flex-1 h-1.5 lg:h-2 bg-[#101218] border border-white/10 rounded-full cursor-pointer group overflow-hidden"
+          className="relative flex-1 h-3 lg:h-2 bg-[#101218] border border-white/10 rounded-full cursor-pointer group overflow-hidden"
           onClick={(e) => {
             if (deck.source !== 'local' || !deck.duration) return;
             const rect = e.currentTarget.getBoundingClientRect();
@@ -821,30 +850,39 @@ export const DeckPanel: React.FC<DeckPanelProps> = ({
 
   return (
     <div
-      className={`flex-1 min-w-0 flex flex-col gap-1 lg:gap-0 lg:flex-row lg:items-stretch lg:gap-2 p-1 lg:p-0 rounded-lg lg:rounded-none border lg:border-0 ${
-        isEndingSoon ? 'border-red-500/80 bg-red-950/10 lg:bg-transparent' : 'border-white/10 bg-[#101218] lg:bg-transparent'
+      className={`relative flex-1 min-w-0 flex flex-col gap-2 lg:gap-0 lg:flex-row lg:items-stretch lg:gap-2 p-2.5 lg:p-0 rounded-xl lg:rounded-none border lg:border-0 ${
+        isEndingSoon ? 'border-red-500/80 bg-red-950/15 lg:bg-transparent' : 'border-white/15 bg-[#101218] lg:bg-transparent'
       }`}
     >
-      {/* Mobile-only Deck Header */}
-      <div className="flex lg:hidden flex-col gap-1 px-0.5 pt-0.5">
-        <div className="flex items-center justify-between gap-1">
-          <span
-            className={`px-1.5 py-0.5 rounded border text-[10px] font-extrabold tracking-wide whitespace-nowrap ${
-              deck.id === 'A'
-                ? 'bg-[#22D3EE] border-[#22D3EE] text-[#090A0E]'
-                : 'bg-[#EC287B] border-[#EC287B] text-white'
-            }`}
-          >
-            DECK {deck.id}
-          </span>
+      {KeyPickerPopover}
 
-          <div className="flex items-center gap-1">
+      {/* Mobile-only Spacious Live Singer Header (< lg) */}
+      <div className="flex lg:hidden flex-col gap-2">
+        <div className="flex items-center justify-between gap-2">
+          <div className="flex items-center gap-2 min-w-0 flex-1">
+            <span
+              className={`px-2 py-1 rounded border text-[11px] font-extrabold tracking-wide whitespace-nowrap shrink-0 ${
+                deck.id === 'A'
+                  ? 'bg-[#22D3EE] border-[#22D3EE] text-[#090A0E]'
+                  : 'bg-[#EC287B] border-[#EC287B] text-white'
+              }`}
+            >
+              DECK {deck.id}
+            </span>
+            <span className="text-xs sm:text-sm font-bold text-slate-100 truncate">
+              {deck.source === 'youtube'
+                ? deck.youtubeTitle || 'YouTube Karaoke'
+                : deck.track?.name || 'Sin canción cargada'}
+            </span>
+          </div>
+
+          <div className="flex items-center gap-1.5 shrink-0">
             <button
               type="button"
               onClick={() =>
                 onChangeSource(deck.source === 'local' ? 'youtube' : 'local')
               }
-              className={`px-1.5 py-0.5 rounded text-[9px] font-bold border cursor-pointer ${
+              className={`h-9 px-2.5 rounded-lg text-xs font-bold border cursor-pointer ${
                 deck.source === 'local'
                   ? 'bg-[#0A0B0F] text-[#22D3EE] border-[#22D3EE]/60'
                   : 'bg-[#EC287B] text-white border-[#EC287B]'
@@ -855,48 +893,85 @@ export const DeckPanel: React.FC<DeckPanelProps> = ({
             <button
               type="button"
               onClick={() => onUnloadTrack?.()}
-              className="p-1 rounded bg-[#141824] border border-white/10 text-slate-400 hover:text-red-400 cursor-pointer"
+              className="w-9 h-9 rounded-lg bg-[#141824] border border-white/15 text-slate-400 hover:text-red-400 flex items-center justify-center cursor-pointer"
               title={`Limpiar Deck ${deck.id}`}
             >
-              <Trash2 className="w-3 h-3" />
+              <Trash2 className="w-4 h-4" />
             </button>
             <button
               type="button"
               onClick={onToggleExpand}
-              className="p-1 rounded bg-[#141824] border border-white/10 text-slate-300 cursor-pointer"
+              className="w-9 h-9 rounded-lg bg-[#141824] border border-white/15 text-[#FACC15] flex items-center justify-center cursor-pointer"
               title="Expandir pantalla"
             >
               {deck.isExpanded ? (
-                <Minimize2 className="w-3 h-3" />
+                <Minimize2 className="w-4 h-4" />
               ) : (
-                <Maximize2 className="w-3 h-3" />
+                <Maximize2 className="w-4 h-4" />
               )}
             </button>
           </div>
         </div>
 
-        <button
-          type="button"
-          onClick={() => {
-            if (deck.track) {
-              if (deck.track.hasAiLyrics) onToggleLyricsOverlay();
-              else onRequestAiLyrics();
-            } else {
-              onSelectYoutubeTab();
-            }
-          }}
-          className={`w-fit inline-flex items-center gap-1 px-2 py-0.5 rounded-full border text-[10px] font-semibold cursor-pointer ${
-            deck.showLyricsOverlay && deck.track?.hasAiLyrics
-              ? 'bg-purple-600/35 border-purple-400 text-purple-100'
-              : 'bg-[#171126] border-purple-500/45 text-purple-300'
-          }`}
-        >
-          <Mic className="w-2.5 h-2.5" />
-          <span>Karaoke IA</span>
-        </button>
+        {/* Mobile Live Singer Quick Action Strip (>= 40px touch buttons) */}
+        <div className="grid grid-cols-3 gap-1.5">
+          <button
+            type="button"
+            onClick={handleToggleVocalRemoval}
+            className={`min-h-[40px] px-2 rounded-lg border text-[11px] font-extrabold flex items-center justify-center gap-1.5 cursor-pointer transition-all ${
+              isVocalRemoved
+                ? 'bg-[#FACC15] border-[#FACC15] text-[#090A0E] shadow-[0_0_12px_rgba(250,204,21,0.5)]'
+                : 'bg-[#0A0B0F] border-[#FACC15]/55 text-[#FACC15]'
+            }`}
+            title="Quitar voz en tiempo real para dejar solo la pista"
+          >
+            <MicOff className="w-3.5 h-3.5 shrink-0" />
+            <span className="truncate">{isVocalRemoved ? 'PISTA ON' : 'Sin Voz'}</span>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => {
+              if (deck.track) {
+                if (deck.track.hasAiLyrics) onToggleLyricsOverlay();
+                else onRequestAiLyrics();
+              } else {
+                onSelectYoutubeTab();
+              }
+            }}
+            className={`min-h-[40px] px-2 rounded-lg border text-[11px] font-bold flex items-center justify-center gap-1.5 cursor-pointer ${
+              deck.showLyricsOverlay && deck.track?.hasAiLyrics
+                ? 'bg-[#EC287B]/25 border-[#EC287B] text-white'
+                : 'bg-[#0A0B0F] border-white/20 text-slate-200'
+            }`}
+          >
+            <Mic className="w-3.5 h-3.5 shrink-0 text-[#EC287B]" />
+            <span className="truncate">
+              {deck.track?.hasAiLyrics
+                ? deck.showLyricsOverlay
+                  ? 'Letra ON'
+                  : 'Letra OFF'
+                : 'Karaoke IA'}
+            </span>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => setShowKeyPicker((v) => !v)}
+            className={`min-h-[40px] px-2 rounded-lg border text-[11px] font-bold flex items-center justify-center gap-1 cursor-pointer ${
+              deck.pitchSemitones !== 0
+                ? 'bg-[#22D3EE]/15 border-[#22D3EE] text-[#22D3EE]'
+                : 'bg-[#0A0B0F] border-[#22D3EE]/45 text-slate-200'
+            }`}
+          >
+            <span className="truncate">
+              Nota: {deck.pitchSemitones === 0 && !deck.track?.musicalKey ? 'Orig' : transposed.latin}
+            </span>
+          </button>
+        </div>
       </div>
 
-      {/* Monitor + Pitch/Transport Strip */}
+      {/* Monitor + Desktop Pitch/Transport Strip */}
       <div className="flex-1 min-w-0 flex items-stretch gap-1 lg:gap-2">
         {isReverse ? (
           <>
@@ -909,6 +984,77 @@ export const DeckPanel: React.FC<DeckPanelProps> = ({
             {PitchAndTransportStrip}
           </>
         )}
+      </div>
+
+      {/* Mobile Bottom Ergonomic Transport & Pitch Dock (< lg, >= 44px touch targets) */}
+      <div className="flex lg:hidden items-center justify-between gap-2 pt-1 border-t border-white/10">
+        <div className="flex items-center gap-2 shrink-0">
+          <button
+            type="button"
+            onClick={onCue}
+            className="w-12 h-11 rounded-xl border-2 border-[#FACC15] bg-[#0A0B0F] active:bg-[#FACC15]/25 text-[#FACC15] text-xs font-extrabold tracking-wide flex items-center justify-center cursor-pointer"
+          >
+            CUE
+          </button>
+
+          <button
+            type="button"
+            onClick={onTogglePlay}
+            className={`w-14 h-11 rounded-xl border-2 flex items-center justify-center cursor-pointer active:scale-95 transition-all ${
+              deck.isPlaying
+                ? deck.id === 'A'
+                  ? 'border-[#22D3EE] bg-[#22D3EE] text-[#090A0E] shadow-[0_0_16px_rgba(34,211,238,0.55)]'
+                  : 'border-[#EC287B] bg-[#EC287B] text-white shadow-[0_0_16px_rgba(236,40,123,0.55)]'
+                : deck.id === 'A'
+                ? 'border-[#22D3EE] bg-[#0A0B0F] text-[#22D3EE]'
+                : 'border-[#EC287B] bg-[#0A0B0F] text-[#EC287B]'
+            }`}
+            title={deck.isPlaying ? 'Pausar' : 'Reproducir'}
+          >
+            {deck.isPlaying ? (
+              <Pause className="w-5 h-5 fill-current" />
+            ) : (
+              <Play className="w-5 h-5 fill-current ml-0.5" />
+            )}
+          </button>
+        </div>
+
+        {/* Mobile Pitch Control (-1 / Readout / +1) */}
+        <div className="flex items-center gap-1.5">
+          <button
+            type="button"
+            onClick={() => onChangePitch(Math.max(-12, deck.pitchSemitones - 1))}
+            className="w-11 h-11 rounded-xl bg-[#0A0B0F] active:bg-[#1C202C] border border-white/20 text-white text-base font-extrabold flex items-center justify-center cursor-pointer"
+            title="Bajar 1 semitono"
+          >
+            -
+          </button>
+          <button
+            type="button"
+            onClick={() => onChangePitch(0)}
+            className="min-w-[64px] h-11 px-2 rounded-xl bg-[#0A0B0F] border border-[#FACC15]/50 flex flex-col items-center justify-center cursor-pointer"
+            title="Tocar para volver al tono original (0)"
+          >
+            <span className="text-[9px] font-extrabold text-[#FACC15] uppercase leading-none">
+              TONO
+            </span>
+            <span className="text-xs font-mono-tabular font-bold text-white leading-tight mt-0.5">
+              {deck.pitchSemitones > 0
+                ? `+${deck.pitchSemitones}`
+                : deck.pitchSemitones === 0
+                ? '0 st'
+                : `${deck.pitchSemitones}`}
+            </span>
+          </button>
+          <button
+            type="button"
+            onClick={() => onChangePitch(Math.min(12, deck.pitchSemitones + 1))}
+            className="w-11 h-11 rounded-xl bg-[#0A0B0F] active:bg-[#1C202C] border border-white/20 text-white text-base font-extrabold flex items-center justify-center cursor-pointer"
+            title="Subir 1 semitono"
+          >
+            +
+          </button>
+        </div>
       </div>
     </div>
   );

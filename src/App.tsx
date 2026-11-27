@@ -11,7 +11,7 @@ import {
   signInWithRedirect,
   signOut,
 } from 'firebase/auth';
-import { Disc, LayoutGrid, Library, Maximize, Settings } from 'lucide-react';
+import { ArrowLeftRight, Disc, LayoutGrid, Library, Maximize, Settings, Sliders } from 'lucide-react';
 import { audioEngine } from './audio/audioEngine';
 import {
   INITIAL_PLAYLISTS,
@@ -106,7 +106,8 @@ function createInitialDeck(id: DeckId): DeckState {
 export default function App() {
   const [inStudio, setInStudio] = useState(true);
   const [workspaceMode, setWorkspaceMode] = useState<WorkspaceMode>('mixer');
-  const [mobileTab, setMobileTab] = useState<'decks' | 'library' | 'sampler'>('decks');
+  const [mobileTab, setMobileTab] = useState<'decks' | 'mixer' | 'library' | 'sampler'>('decks');
+  const [mobileActiveDeck, setMobileActiveDeck] = useState<DeckId>('A');
   const [libraryTab, setLibraryTab] = useState<LibraryTab>('local');
   const [playlists, setPlaylists] = useState<Playlist[]>(INITIAL_PLAYLISTS);
   const [selectedPlaylistId, setSelectedPlaylistId] = useState<string | null>(null);
@@ -733,6 +734,7 @@ export default function App() {
     if (mixerRef.current.autoMixEnabled) {
       ensureOppositeDeckQueued(deckId, readyTrack, false);
     }
+    setMobileActiveDeck(deckId);
     showToast(`Cargado en Deck ${deckId}: ${readyTrack.name}`);
   };
 
@@ -985,6 +987,11 @@ export default function App() {
     stemMode: StemMode,
     recommendedEq?: { high: number; mid: number; low: number }
   ) => {
+    const targetDeck = deckId === 'A' ? deckARef.current : deckBRef.current;
+    if (stemMode !== 'full' && (targetDeck.source !== 'local' || !targetDeck.track)) {
+      showToast('Carga una canción local (MP3/MP4) para quitar la voz en tiempo real');
+      return;
+    }
     audioEngine.resume();
     setDeck(deckId, (prev) => ({ ...prev, stemMode }));
     if (recommendedEq) {
@@ -998,7 +1005,13 @@ export default function App() {
         },
       }));
     }
-    showToast(`Separación IA aplicada en Deck ${deckId}: ${stemMode}`);
+    if (stemMode === 'instrumental') {
+      showToast(`Deck ${deckId}: Voz removida — Modo Pista activo`);
+    } else if (stemMode === 'full') {
+      showToast(`Deck ${deckId}: Audio original restaurado`);
+    } else {
+      showToast(`Separación IA aplicada en Deck ${deckId}: ${stemMode}`);
+    }
   };
 
   // Mixer & Auto-Mix
@@ -1376,6 +1389,7 @@ export default function App() {
       youtubeTitle: video.title,
       isPlaying: false,
     }));
+    setMobileActiveDeck(deckId);
     showToast(`YouTube listo en Deck ${deckId}: ${video.title} (pulsa Play)`);
   };
 
@@ -1626,13 +1640,22 @@ export default function App() {
       />
 
       {/* Mobile Compact Header (< lg) */}
-      <div className="lg:hidden relative flex items-center justify-between px-3 py-1.5 bg-[#101218] border-b border-white/10 shrink-0">
+      <div className="lg:hidden relative h-11 flex items-center justify-between px-3 bg-[#101218] border-b border-white/10 shrink-0">
         <div className="studio-tricolor-bar absolute bottom-0 inset-x-0 h-[2px] opacity-85 pointer-events-none" />
-        <span className="font-display text-xs font-extrabold tracking-tight">
+        <span className="font-display text-sm font-extrabold tracking-tight">
           <span className="text-[#FACC15]">Show</span>
           <span className="text-[#22D3EE]">Live</span>
         </span>
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-1.5">
+          <button
+            type="button"
+            onClick={handleToggleFullscreen}
+            className="h-8 px-2 rounded bg-[#141720] border border-white/15 text-slate-200 flex items-center gap-1 text-[11px] font-semibold cursor-pointer shrink-0"
+            title="Pantalla Completa"
+          >
+            <Maximize className="w-3.5 h-3.5 text-[#22D3EE]" />
+            <span>Full</span>
+          </button>
           {isAdmin && (
             <button
               type="button"
@@ -1641,9 +1664,9 @@ export default function App() {
                 setDeckB((p) => ({ ...p, isPlaying: false }));
                 setShowAdminDashboard(true);
               }}
-              className="px-2.5 py-1 rounded bg-[#141720] border border-[#FACC15]/60 text-[11px] font-bold text-[#FACC15] cursor-pointer shrink-0"
+              className="h-8 px-2.5 rounded bg-[#141720] border border-[#FACC15]/60 text-[11px] font-bold text-[#FACC15] cursor-pointer shrink-0"
             >
-              Mi Dashboard
+              Dashboard
             </button>
           )}
           {!authUser ? (
@@ -1654,15 +1677,15 @@ export default function App() {
                 setAuthNotice(null);
                 setShowLoginScreen(true);
               }}
-              className="px-2.5 py-1 rounded bg-[#141720] border border-[#22D3EE]/60 text-[11px] font-bold text-[#22D3EE] cursor-pointer shrink-0"
+              className="h-8 px-2.5 rounded bg-[#141720] border border-[#22D3EE]/60 text-[11px] font-bold text-[#22D3EE] cursor-pointer shrink-0"
             >
-              Iniciar sesión
+              Entrar
             </button>
           ) : (
             <button
               type="button"
               onClick={handleSignOut}
-              className="px-2.5 py-1 rounded bg-[#141720] border border-[#EC287B]/50 text-[11px] font-semibold text-slate-200 cursor-pointer shrink-0"
+              className="h-8 px-2.5 rounded bg-[#141720] border border-[#EC287B]/50 text-[11px] font-semibold text-slate-200 cursor-pointer shrink-0"
             >
               Salir
             </button>
@@ -1671,19 +1694,87 @@ export default function App() {
       </div>
 
       {/* Main Studio Body */}
-      <main className="flex-1 min-h-0 p-1.5 sm:p-2.5 flex flex-col gap-1.5 lg:gap-2.5 overflow-hidden">
-        {/* UPPER SECTION: DECK A + MIXER + DECK B — Always mounted offscreen in PADS mode so YouTube & local playback never stop */}
+      <main className="flex-1 min-h-0 p-2 sm:p-2.5 flex flex-col gap-2 lg:gap-2.5 overflow-hidden">
+        {/* Mobile Deck A / Deck B Quick Switcher (shown in mobile Decks mode) */}
+        {workspaceMode !== 'pads' && mobileTab === 'decks' && (
+          <div className="flex lg:hidden items-center gap-1.5 shrink-0">
+            <button
+              type="button"
+              onClick={() => setMobileActiveDeck('A')}
+              className={`flex-1 min-w-0 h-10 px-2.5 rounded-lg border flex items-center justify-between gap-1.5 text-left transition-all cursor-pointer ${
+                mobileActiveDeck === 'A'
+                  ? 'bg-[#22D3EE]/15 border-[#22D3EE] text-white shadow-[0_0_10px_rgba(34,211,238,0.25)]'
+                  : 'bg-[#101218] border-white/15 text-slate-400'
+              }`}
+            >
+              <span className="flex items-center gap-1.5 min-w-0">
+                <span className="px-1.5 py-0.5 rounded bg-[#22D3EE] text-[#090A0E] text-[10px] font-extrabold shrink-0">
+                  A
+                </span>
+                <span className="text-[11px] font-semibold truncate">
+                  {deckA.source === 'youtube'
+                    ? deckA.youtubeTitle || 'YouTube'
+                    : deckA.track?.name || 'Vacío'}
+                </span>
+              </span>
+              {deckA.isPlaying && (
+                <span className="w-2 h-2 rounded-full bg-[#22D3EE] shrink-0" />
+              )}
+            </button>
+
+            <button
+              type="button"
+              onClick={handleManualCrossfadeNow}
+              className="w-10 h-10 rounded-lg bg-[#101218] border border-[#FACC15]/55 text-[#FACC15] flex items-center justify-center shrink-0 cursor-pointer"
+              title="Transición automática al otro Deck"
+            >
+              <ArrowLeftRight className="w-4 h-4" />
+            </button>
+
+            <button
+              type="button"
+              onClick={() => setMobileActiveDeck('B')}
+              className={`flex-1 min-w-0 h-10 px-2.5 rounded-lg border flex items-center justify-between gap-1.5 text-left transition-all cursor-pointer ${
+                mobileActiveDeck === 'B'
+                  ? 'bg-[#EC287B]/15 border-[#EC287B] text-white shadow-[0_0_10px_rgba(236,40,123,0.25)]'
+                  : 'bg-[#101218] border-white/15 text-slate-400'
+              }`}
+            >
+              <span className="flex items-center gap-1.5 min-w-0">
+                <span className="px-1.5 py-0.5 rounded bg-[#EC287B] text-white text-[10px] font-extrabold shrink-0">
+                  B
+                </span>
+                <span className="text-[11px] font-semibold truncate">
+                  {deckB.source === 'youtube'
+                    ? deckB.youtubeTitle || 'YouTube'
+                    : deckB.track?.name || 'Vacío'}
+                </span>
+              </span>
+              {deckB.isPlaying && (
+                <span className="w-2 h-2 rounded-full bg-[#EC287B] shrink-0" />
+              )}
+            </button>
+          </div>
+        )}
+
+        {/* UPPER SECTION: DECK A + MIXER + DECK B — Always mounted offscreen when inactive so YouTube & local playback never stop */}
         <section
           aria-hidden={workspaceMode === 'pads'}
           className={
             workspaceMode === 'pads'
               ? 'fixed -left-[10000px] top-0 w-[800px] h-[360px] opacity-0 pointer-events-none'
-              : mobileTab === 'decks'
-              ? 'grid grid-cols-2 grid-rows-[auto_1fr] flex-1 min-h-0 gap-1.5 lg:flex lg:flex-none lg:flex-row lg:items-stretch lg:gap-2.5 lg:h-[50%] shrink-0'
+              : mobileTab === 'decks' || mobileTab === 'mixer'
+              ? 'flex flex-col flex-1 min-h-0 gap-2 lg:flex-none lg:flex-row lg:items-stretch lg:gap-2.5 lg:h-[50%] shrink-0'
               : 'fixed -left-[10000px] top-0 w-[720px] h-[320px] opacity-0 pointer-events-none lg:static lg:left-auto lg:top-auto lg:w-auto lg:opacity-100 lg:pointer-events-auto lg:flex lg:flex-none lg:flex-row lg:items-stretch lg:gap-2.5 lg:h-[50%] shrink-0'
           }
         >
-          <div className="order-1 col-span-1 lg:flex-1 min-w-0 flex">
+          <div
+            className={
+              mobileTab === 'decks' && mobileActiveDeck === 'A'
+                ? 'flex flex-1 min-h-0 min-w-0'
+                : 'fixed -left-[10000px] top-0 w-[640px] h-[360px] opacity-0 pointer-events-none lg:static lg:left-auto lg:top-auto lg:w-auto lg:h-auto lg:opacity-100 lg:pointer-events-auto lg:flex lg:flex-1 lg:min-w-0'
+            }
+          >
             <DeckPanel
               deck={deckA}
               channelVolume={effVolA}
@@ -1722,7 +1813,13 @@ export default function App() {
             />
           </div>
 
-          <div className="order-3 col-span-2 lg:order-2 lg:col-span-1 flex min-h-0">
+          <div
+            className={
+              mobileTab === 'mixer'
+                ? 'flex flex-1 min-h-0 lg:flex-none lg:order-2'
+                : 'hidden lg:flex lg:order-2 min-h-0'
+            }
+          >
             <MixerPanel
               mixer={mixer}
               onChangeChannel={handleChangeChannel}
@@ -1739,7 +1836,13 @@ export default function App() {
             />
           </div>
 
-          <div className="order-2 col-span-1 lg:order-3 lg:flex-1 min-w-0 flex">
+          <div
+            className={
+              mobileTab === 'decks' && mobileActiveDeck === 'B'
+                ? 'flex flex-1 min-h-0 min-w-0 lg:order-3'
+                : 'fixed -left-[10000px] top-0 w-[640px] h-[360px] opacity-0 pointer-events-none lg:static lg:left-auto lg:top-auto lg:w-auto lg:h-auto lg:opacity-100 lg:pointer-events-auto lg:order-3 lg:flex lg:flex-1 lg:min-w-0'
+            }
+          >
             <DeckPanel
               deck={deckB}
               channelVolume={effVolB}
@@ -1915,13 +2018,35 @@ export default function App() {
           }`}
         >
           <span
-            className={`px-3 py-1 rounded-xl ${
+            className={`px-2.5 py-1 rounded-xl ${
               workspaceMode !== 'pads' && mobileTab === 'decks' ? 'bg-[#FACC15]/15 border border-[#FACC15]/50' : ''
             }`}
           >
             <Disc className="w-5 h-5" />
           </span>
           <span className="text-[10px] font-semibold leading-none">Decks</span>
+        </button>
+
+        <button
+          type="button"
+          onClick={() => {
+            setWorkspaceMode('mixer');
+            setMobileTab('mixer');
+          }}
+          className={`flex flex-col items-center justify-center gap-0.5 py-1 rounded-xl transition-colors cursor-pointer ${
+            workspaceMode !== 'pads' && mobileTab === 'mixer'
+              ? 'text-[#FACC15]'
+              : 'text-slate-400 hover:text-slate-200'
+          }`}
+        >
+          <span
+            className={`px-2.5 py-1 rounded-xl ${
+              workspaceMode !== 'pads' && mobileTab === 'mixer' ? 'bg-[#FACC15]/15 border border-[#FACC15]/50' : ''
+            }`}
+          >
+            <Sliders className="w-5 h-5" />
+          </span>
+          <span className="text-[10px] font-semibold leading-none">Mixer</span>
         </button>
 
         <button
@@ -1937,13 +2062,13 @@ export default function App() {
           }`}
         >
           <span
-            className={`px-3 py-1 rounded-xl ${
+            className={`px-2.5 py-1 rounded-xl ${
               workspaceMode !== 'pads' && mobileTab === 'library' ? 'bg-[#22D3EE]/15 border border-[#22D3EE]/50' : ''
             }`}
           >
             <Library className="w-5 h-5" />
           </span>
-          <span className="text-[10px] font-semibold leading-none">Library</span>
+          <span className="text-[10px] font-semibold leading-none">Música</span>
         </button>
 
         <button
@@ -1959,13 +2084,13 @@ export default function App() {
           }`}
         >
           <span
-            className={`px-3 py-1 rounded-xl ${
+            className={`px-2.5 py-1 rounded-xl ${
               workspaceMode === 'pads' || mobileTab === 'sampler' ? 'bg-[#EC287B]/15 border border-[#EC287B]/50' : ''
             }`}
           >
             <LayoutGrid className="w-5 h-5" />
           </span>
-          <span className="text-[10px] font-semibold leading-none">Sampler</span>
+          <span className="text-[10px] font-semibold leading-none">Pads</span>
         </button>
 
         <button
@@ -1973,21 +2098,10 @@ export default function App() {
           onClick={() => setShowAiConfigModal(true)}
           className="flex flex-col items-center justify-center gap-0.5 py-1 rounded-xl text-slate-400 hover:text-slate-200 transition-colors cursor-pointer"
         >
-          <span className="px-3 py-1">
+          <span className="px-2.5 py-1">
             <Settings className="w-5 h-5" />
           </span>
           <span className="text-[10px] font-semibold leading-none">Ajustes</span>
-        </button>
-
-        <button
-          type="button"
-          onClick={handleToggleFullscreen}
-          className="flex flex-col items-center justify-center gap-0.5 py-1 rounded-xl text-slate-400 hover:text-slate-200 transition-colors cursor-pointer"
-        >
-          <span className="px-3 py-1">
-            <Maximize className="w-5 h-5" />
-          </span>
-          <span className="text-[10px] font-semibold leading-none">Full</span>
         </button>
       </nav>
 
