@@ -1511,7 +1511,7 @@ export default function App() {
     const existing = activeBank?.pads.find((p) => p.id === padId);
     if (!existing) return;
 
-    const isLoopMode = triggerMode === 'loop-4' || triggerMode === 'loop-8';
+    const isLoopMode = triggerMode === 'loop';
     const analysis = await audioEngine.analyzeAudioUrl(url);
     handleSavePad(
       {
@@ -1521,7 +1521,7 @@ export default function App() {
         customAudioUrl: url,
         customAudioName: file.name,
         fxPreset: undefined,
-        loopMode: isLoopMode ? triggerMode : existing.loopMode,
+        loopMode: isLoopMode ? 'loop' : existing.loopMode,
         loopBpm: analysis?.detectedBpm || existing.loopBpm,
         loopStartSec: analysis?.introStartSec ?? existing.loopStartSec,
       },
@@ -1554,7 +1554,7 @@ export default function App() {
     };
   };
 
-  const handleCaptureDeckIntro = async (deckId: DeckId, beats: 4 | 8) => {
+  const handleCaptureDeckIntro = async (deckId: DeckId) => {
     const deck = deckId === 'A' ? deckA : deckB;
     if (deck.source !== 'local' || !deck.track) {
       showToast(`Carga primero una canción local en Deck ${deckId}`);
@@ -1577,7 +1577,6 @@ export default function App() {
     const targetPad = emptyInB || emptyAny || activeBank.pads[31];
     if (!targetPad) return;
 
-    const loopMode = beats === 8 ? 'loop-8' : 'loop-4';
     const nextPad: SamplerPad = {
       ...targetPad,
       label: clip.label,
@@ -1585,7 +1584,7 @@ export default function App() {
       customAudioUrl: clip.url,
       customAudioName: clip.file.name,
       fxPreset: undefined,
-      loopMode,
+      loopMode: 'loop',
       loopBpm: clip.detectedBpm,
       loopStartSec: clip.introStartSec,
       loopFullFile: false,
@@ -1593,9 +1592,9 @@ export default function App() {
 
     await handleSavePad(nextPad, clip.file);
     audioEngine.resume();
-    await audioEngine.triggerPad(nextPad, loopMode, clip.detectedBpm);
+    await audioEngine.triggerPad(nextPad, 'loop', clip.detectedBpm);
     showToast(
-      `1ª Cola ${beats}T de "${deck.track.name}" (${clip.detectedBpm} BPM) en Pad ${targetPad.id}`
+      `Auto Loop 1ª Cola de "${deck.track.name}" (${clip.detectedBpm} BPM) en Pad ${targetPad.id}`
     );
   };
 

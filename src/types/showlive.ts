@@ -1,8 +1,8 @@
 export type DeckId = 'A' | 'B';
 export type DeckSource = 'local' | 'youtube';
 export type StemMode = 'full' | 'instrumental' | 'vocals' | 'drums_bass';
-export type TriggerMode = 'one-shot' | 'poly' | 'gate' | 'loop-4' | 'loop-8';
-export type PadLoopMode = 'inherit' | 'oneshot' | 'loop-4' | 'loop-8';
+export type TriggerMode = 'one-shot' | 'poly' | 'gate' | 'loop';
+export type PadLoopMode = 'inherit' | 'oneshot' | 'loop';
 export type WorkspaceMode = 'mixer' | 'pads';
 export type LibraryTab = 'local' | 'youtube';
 

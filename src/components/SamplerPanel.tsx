@@ -26,7 +26,7 @@ interface SamplerPanelProps {
   isDucking?: boolean;
   deckALabel?: string | null;
   deckBLabel?: string | null;
-  onCaptureDeckIntro?: (deckId: 'A' | 'B', beats: 4 | 8) => void;
+  onCaptureDeckIntro?: (deckId: 'A' | 'B') => void;
   isCollapsed: boolean;
   onToggleCollapse: () => void;
   isFullPadsView: boolean;
@@ -178,12 +178,10 @@ export const SamplerPanel: React.FC<SamplerPanelProps> = ({
           const isEmpty = !pad.fxPreset && !pad.customAudioUrl;
           const isActive = activePadIds.has(pad.id);
           const isLooping = loopingPadIds.has(pad.id);
-          const padLoopTag =
-            pad.loopMode === 'loop-4'
-              ? '4T'
-              : pad.loopMode === 'loop-8'
-              ? '8T'
-              : null;
+          const rawPadMode = pad.loopMode as string | undefined;
+          const isLoopPad =
+            rawPadMode === 'loop' || rawPadMode === 'loop-4' || rawPadMode === 'loop-8';
+          const padLoopTag = isLoopPad ? 'LOOP' : null;
           const isBrightBg =
             pad.color === '#FACC15' ||
             pad.color === '#EAB308' ||
@@ -403,8 +401,7 @@ export const SamplerPanel: React.FC<SamplerPanelProps> = ({
                     { id: 'one-shot', label: '1-Shot' },
                     { id: 'poly', label: 'Poly' },
                     { id: 'gate', label: 'Gate' },
-                    { id: 'loop-4', label: 'Loop 4T' },
-                    { id: 'loop-8', label: 'Loop 8T' },
+                    { id: 'loop', label: 'Auto Loop' },
                   ] as { id: TriggerMode; label: string }[]
                 ).map((mode) => (
                   <button
@@ -413,7 +410,7 @@ export const SamplerPanel: React.FC<SamplerPanelProps> = ({
                     onClick={() => onChangeTriggerMode(mode.id)}
                     className={`px-1.5 sm:px-2 py-0.5 rounded text-[9.5px] sm:text-[10px] font-extrabold transition-all cursor-pointer border whitespace-nowrap ${
                       triggerMode === mode.id
-                        ? mode.id.startsWith('loop')
+                        ? mode.id === 'loop'
                           ? 'bg-[#FACC15] border-[#FACC15] text-[#090A0E] shadow-[0_0_10px_rgba(250,204,21,0.45)]'
                           : 'bg-[#22D3EE] border-[#22D3EE] text-[#090A0E] shadow-[0_0_10px_rgba(34,211,238,0.4)]'
                         : 'border-transparent text-slate-400 hover:text-white'
@@ -443,21 +440,17 @@ export const SamplerPanel: React.FC<SamplerPanelProps> = ({
             <div className="flex flex-wrap items-center justify-between gap-1.5 px-2 py-1 rounded bg-[#0A0B0F] border border-[#FACC15]/25">
               <span className="text-[10px] font-bold text-[#FACC15] flex items-center gap-1">
                 <Repeat className="w-3 h-3" />
-                <span>
-                  1ª Cola → Base ({triggerMode === 'loop-8' ? '8T' : '4T'}):
-                </span>
+                <span>Auto Loop 1ª Cola → Pad:</span>
               </span>
               <div className="flex items-center gap-1.5">
                 <button
                   type="button"
                   disabled={!deckALabel}
-                  onClick={() =>
-                    onCaptureDeckIntro('A', triggerMode === 'loop-8' ? 8 : 4)
-                  }
+                  onClick={() => onCaptureDeckIntro('A')}
                   className="px-2 py-0.5 rounded bg-[#141923] hover:bg-[#22D3EE]/20 border border-[#22D3EE]/50 text-[10px] font-bold text-[#22D3EE] disabled:opacity-35 cursor-pointer truncate max-w-[130px]"
                   title={
                     deckALabel
-                      ? `Tomar primera cola de "${deckALabel}" y loopearla en un Pad`
+                      ? `Tomar primera cola de "${deckALabel}" y loopearla automáticamente en un Pad`
                       : 'Carga un audio local en Deck A'
                   }
                 >
@@ -466,13 +459,11 @@ export const SamplerPanel: React.FC<SamplerPanelProps> = ({
                 <button
                   type="button"
                   disabled={!deckBLabel}
-                  onClick={() =>
-                    onCaptureDeckIntro('B', triggerMode === 'loop-8' ? 8 : 4)
-                  }
+                  onClick={() => onCaptureDeckIntro('B')}
                   className="px-2 py-0.5 rounded bg-[#141923] hover:bg-[#EC287B]/20 border border-[#EC287B]/50 text-[10px] font-bold text-[#EC287B] disabled:opacity-35 cursor-pointer truncate max-w-[130px]"
                   title={
                     deckBLabel
-                      ? `Tomar primera cola de "${deckBLabel}" y loopearla en un Pad`
+                      ? `Tomar primera cola de "${deckBLabel}" y loopearla automáticamente en un Pad`
                       : 'Carga un audio local en Deck B'
                   }
                 >

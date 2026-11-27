@@ -175,7 +175,7 @@ class ShowLiveAudioEngine {
   private urlBufferCache = new Map<string, AudioBuffer>();
   private bufferAnalysisCache = new WeakMap<
     AudioBuffer,
-    { introStartSec: number; detectedBpm: number }
+    { introStartSec: number; detectedBpm: number; autoBeats: 4 | 8 }
   >();
   private activePadSources = new Map<number, AudioBufferSourceNode[]>();
   private activeLoopPadIds = new Set<number>();
@@ -772,18 +772,75 @@ class ShowLiveAudioEngine {
     return Math.max(70, Math.min(165, Math.round(bestBpm)));
   }
 
+  private detectBestLoopBeats(
+    buffer: AudioBuffer,
+    startSample: number,
+    bpm: number
+  ): 4 | 8 {
+    const sr = buffer.sampleRate;
+    const fourBeatSamples = Math.round(((4 * 60) / Math.max(60, bpm)) * sr);
+    const eightBeatSamples = fourBeatSamples * 2;
+    if (startSample + eightBeatSamples > buffer.length) return 4;
+
+    const ch0 = buffer.getChannelData(0);
+    const chunk = Math.max(128, Math.round(sr * 0.04)); // 40ms energy bins
+    const binsPerBar = Math.floor(fourBeatSamples / chunk);
+    if (binsPerBar < 8) return 4;
+
+    let rmsBar1 = 0;
+    let rmsBar2 = 0;
+    let dot = 0;
+    let norm1 = 0;
+    let norm2 = 0;
+
+    for (let b = 0; b < binsPerBar; b++) {
+      let e1 = 0;
+      let e2 = 0;
+      const off1 = startSample + b * chunk;
+      const off2 = startSample + fourBeatSamples + b * chunk;
+      for (let i = 0; i < chunk; i++) {
+        const s1 = ch0[off1 + i];
+        const s2 = ch0[off2 + i];
+        e1 += s1 * s1;
+        e2 += s2 * s2;
+      }
+      const v1 = Math.sqrt(e1 / chunk);
+      const v2 = Math.sqrt(e2 / chunk);
+      rmsBar1 += v1;
+      rmsBar2 += v2;
+      dot += v1 * v2;
+      norm1 += v1 * v1;
+      norm2 += v2 * v2;
+    }
+
+    const avg1 = rmsBar1 / binsPerBar;
+    const avg2 = rmsBar2 / binsPerBar;
+    const energyRatio = avg1 > 0.001 ? avg2 / avg1 : 1;
+    const similarity =
+      norm1 > 0 && norm2 > 0 ? dot / Math.sqrt(norm1 * norm2) : 0;
+
+    // If vocals/drop dramatically changes bar 2, lock strictly onto the 4-beat intro groove
+    if (energyRatio > 1.42 || energyRatio < 0.62) return 4;
+    // Fast tempos or cohesive 2-bar rhythmic pattern lock cleanly to 8 beats
+    if (bpm >= 112 || similarity >= 0.72) return 8;
+    return 4;
+  }
+
   public analyzeBufferIntro(buffer: AudioBuffer): {
     introStartSec: number;
     detectedBpm: number;
+    autoBeats: 4 | 8;
   } {
     const cached = this.bufferAnalysisCache.get(buffer);
     if (cached) return cached;
 
     const startSample = this.detectIntroStartSample(buffer);
     const detectedBpm = this.estimateBpmFromBuffer(buffer, startSample);
+    const autoBeats = this.detectBestLoopBeats(buffer, startSample, detectedBpm);
     const result = {
       introStartSec: Number((startSample / buffer.sampleRate).toFixed(3)),
       detectedBpm,
+      autoBeats,
     };
     this.bufferAnalysisCache.set(buffer, result);
     return result;
@@ -791,7 +848,7 @@ class ShowLiveAudioEngine {
 
   public async analyzeAudioUrl(
     url: string
-  ): Promise<{ introStartSec: number; detectedBpm: number } | null> {
+  ): Promise<{ introStartSec: number; detectedBpm: number; autoBeats: 4 | 8 } | null> {
     if (!url) return null;
     const ctx = this.ensureContext();
     let buffer = this.urlBufferCache.get(url);
@@ -818,6 +875,7 @@ class ShowLiveAudioEngine {
     url: string;
     introStartSec: number;
     detectedBpm: number;
+    autoBeats: 4 | 8;
   } | null> {
     if (!url) return null;
     const ctx = this.ensureContext();
@@ -842,6 +900,7 @@ class ShowLiveAudioEngine {
       overrideBpm && overrideBpm >= 60 && overrideBpm <= 200
         ? Math.round(overrideBpm)
         : analysis.detectedBpm;
+    const autoBeats = analysis.autoBeats;
 
     const sr = buffer.sampleRate;
     const clipEndSec = Math.min(buffer.duration, Math.max(16, introStartSec + 14));
@@ -867,13 +926,18 @@ class ShowLiveAudioEngine {
     clipBuf.copyToChannel(sliceL, 0);
     clipBuf.copyToChannel(sliceR, 1);
     this.urlBufferCache.set(clipUrl, clipBuf);
-    this.bufferAnalysisCache.set(clipBuf, { introStartSec, detectedBpm });
+    this.bufferAnalysisCache.set(clipBuf, {
+      introStartSec,
+      detectedBpm,
+      autoBeats,
+    });
 
     return {
       file,
       url: clipUrl,
       introStartSec,
       detectedBpm,
+      autoBeats,
     };
   }
 
@@ -962,16 +1026,15 @@ class ShowLiveAudioEngine {
     if (!pad.customAudioUrl && !pad.fxPreset) return false;
     const ctx = this.ensureContext();
 
+    const rawPadMode = pad.loopMode as string | undefined;
     const effectiveMode: TriggerMode =
-      pad.loopMode === 'loop-4'
-        ? 'loop-4'
-        : pad.loopMode === 'loop-8'
-        ? 'loop-8'
-        : pad.loopMode === 'oneshot'
+      rawPadMode === 'loop' || rawPadMode === 'loop-4' || rawPadMode === 'loop-8'
+        ? 'loop'
+        : rawPadMode === 'oneshot'
         ? 'one-shot'
         : mode;
 
-    const isLoop = effectiveMode === 'loop-4' || effectiveMode === 'loop-8';
+    const isLoop = effectiveMode === 'loop';
 
     // Pressing an already-looping pad toggles it OFF cleanly
     if (isLoop && (this.activePadSources.get(pad.id)?.length || 0) > 0) {
@@ -1008,13 +1071,13 @@ class ShowLiveAudioEngine {
         src.loopStart = 0;
         src.loopEnd = buffer.duration;
       } else {
-        const beats: 4 | 8 = effectiveMode === 'loop-4' ? 4 : 8;
         const analysis = this.analyzeBufferIntro(buffer);
         const loopBpm = pad.loopBpm || analysis.detectedBpm || fallbackBpm || 100;
         const startSec =
           typeof pad.loopStartSec === 'number'
             ? pad.loopStartSec
             : analysis.introStartSec;
+        const beats: 4 | 8 = analysis.autoBeats;
         const loopBuf = this.createBeatLoopBuffer(
           ctx,
           buffer,

@@ -635,8 +635,7 @@ export const PadEditorModal: React.FC<PadEditorModalProps> = ({
     try {
       const clip = await onExtractDeckIntro(deckId);
       if (!clip) return;
-      const nextMode =
-        draft.loopMode === 'loop-8' ? 'loop-8' : 'loop-4';
+      const nextMode: PadLoopMode = 'loop';
       const next: SamplerPad = {
         ...draft,
         label: draft.label === 'Empty' ? clip.label : draft.label,
@@ -823,16 +822,20 @@ export const PadEditorModal: React.FC<PadEditorModalProps> = ({
                 </span>
               )}
             </div>
-            <div className="grid grid-cols-2 gap-1.5">
+            <div className="grid grid-cols-3 gap-1.5">
               {(
                 [
-                  { id: 'inherit', label: 'Modo del Sampler' },
+                  { id: 'inherit', label: 'Modo Sampler' },
                   { id: 'oneshot', label: 'Cuña (Baja Deck)' },
-                  { id: 'loop-4', label: 'Loop 4 Tiempos' },
-                  { id: 'loop-8', label: 'Loop 8 Tiempos' },
+                  { id: 'loop', label: 'Auto Loop' },
                 ] as { id: PadLoopMode; label: string }[]
               ).map((opt) => {
-                const active = (draft.loopMode || 'inherit') === opt.id;
+                const normalizedMode =
+                  (draft.loopMode as string | undefined) === 'loop-4' ||
+                  (draft.loopMode as string | undefined) === 'loop-8'
+                    ? 'loop'
+                    : draft.loopMode || 'inherit';
+                const active = normalizedMode === opt.id;
                 return (
                   <button
                     key={opt.id}
@@ -846,7 +849,7 @@ export const PadEditorModal: React.FC<PadEditorModalProps> = ({
                     }
                     className={`py-1.5 px-2 rounded border text-[11px] font-bold cursor-pointer transition-colors ${
                       active
-                        ? opt.id.startsWith('loop')
+                        ? opt.id === 'loop'
                           ? 'bg-[#FACC15] border-[#FACC15] text-[#090A0E]'
                           : 'bg-[#22D3EE]/20 border-[#22D3EE] text-[#22D3EE]'
                         : 'bg-[#0A0B0F] border-white/10 text-slate-300 hover:border-white/25'
@@ -858,7 +861,9 @@ export const PadEditorModal: React.FC<PadEditorModalProps> = ({
               })}
             </div>
 
-            {(draft.loopMode === 'loop-4' || draft.loopMode === 'loop-8') && (
+            {((draft.loopMode as string | undefined) === 'loop' ||
+              (draft.loopMode as string | undefined) === 'loop-4' ||
+              (draft.loopMode as string | undefined) === 'loop-8') && (
               <div className="space-y-2.5 pt-2 border-t border-white/10">
                 <div className="flex items-center justify-between gap-2">
                   <span className="text-[11px] font-semibold text-slate-300">

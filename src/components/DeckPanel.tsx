@@ -41,7 +41,7 @@ interface DeckPanelProps {
   onChangeStemMode: (mode: StemMode) => void;
   onSelectYoutubeTab: () => void;
   onUnloadTrack?: () => void;
-  onCaptureIntroToPad?: (deckId: DeckId, beats: 4 | 8) => void;
+  onCaptureIntroToPad?: (deckId: DeckId) => void;
 }
 
 function formatTime(sec: number): string {
@@ -79,7 +79,7 @@ export const DeckPanel: React.FC<DeckPanelProps> = ({
   channelVolumeRef.current = channelVolume;
   const [resolvedUrl, setResolvedUrl] = useState<string | null>(null);
   const [showKeyPicker, setShowKeyPicker] = useState(false);
-  const [introLoopBeats, setIntroLoopBeats] = useState<4 | 8 | null>(null);
+  const [introLoopActive, setIntroLoopActive] = useState(false);
   const [introLoopWindow, setIntroLoopWindow] = useState<{
     startSec: number;
     endSec: number;
@@ -160,13 +160,13 @@ export const DeckPanel: React.FC<DeckPanelProps> = ({
 
   // Reset in-deck intro loop whenever track changes
   useEffect(() => {
-    setIntroLoopBeats(null);
+    setIntroLoopActive(false);
     setIntroLoopWindow(null);
   }, [deck.track?.id, resolvedUrl]);
 
-  // High-precision loop wrap for first intro tail ("primera cola")
+  // High-precision loop wrap for automatic intro tail ("primera cola")
   useEffect(() => {
-    if (!introLoopBeats || !introLoopWindow || deck.source !== 'local') return;
+    if (!introLoopActive || !introLoopWindow || deck.source !== 'local') return;
     const id = window.setInterval(() => {
       const el = mediaRef.current;
       if (!el || el.paused) return;
@@ -177,23 +177,24 @@ export const DeckPanel: React.FC<DeckPanelProps> = ({
       }
     }, 15);
     return () => window.clearInterval(id);
-  }, [introLoopBeats, introLoopWindow, deck.source]);
+  }, [introLoopActive, introLoopWindow, deck.source]);
 
-  const handleToggleIntroLoop = async (beats: 4 | 8) => {
+  const handleToggleIntroLoop = async () => {
     if (deck.source !== 'local' || !resolvedUrl) return;
-    if (introLoopBeats === beats) {
-      setIntroLoopBeats(null);
+    if (introLoopActive) {
+      setIntroLoopActive(false);
       setIntroLoopWindow(null);
       return;
     }
     const analysis = await audioEngine.analyzeAudioUrl(resolvedUrl);
     const startSec = analysis?.introStartSec ?? 0;
     const bpm = deck.track?.bpm || analysis?.detectedBpm || 100;
+    const beats = analysis?.autoBeats || 4;
     const loopDur = (beats * 60) / Math.max(60, Math.min(200, bpm));
     const endSec = startSec + loopDur;
 
     setIntroLoopWindow({ startSec, endSec, bpm });
-    setIntroLoopBeats(beats);
+    setIntroLoopActive(true);
 
     const el = mediaRef.current;
     if (el) {
@@ -583,43 +584,30 @@ export const DeckPanel: React.FC<DeckPanelProps> = ({
           </div>
 
           <div className="flex items-center gap-1.5 shrink-0">
-            {/* 1-Tap Vocal Removal (Pista Sin Voz) + Intro Cola Loop for Local Tracks */}
+            {/* 1-Tap Vocal Removal (Pista Sin Voz) + Automatic Intro Loop for Local Tracks */}
             {deck.source === 'local' && (
               <>
                 {deck.track && resolvedUrl && (
                   <div className="flex items-center bg-[#0A0B0F] border border-white/15 rounded overflow-hidden">
                     <button
                       type="button"
-                      onClick={() => handleToggleIntroLoop(4)}
-                      className={`px-1.5 py-0.5 text-[10px] font-extrabold transition-colors cursor-pointer whitespace-nowrap ${
-                        introLoopBeats === 4
+                      onClick={handleToggleIntroLoop}
+                      className={`inline-flex items-center gap-1 px-2 py-0.5 text-[10px] font-extrabold transition-colors cursor-pointer whitespace-nowrap ${
+                        introLoopActive
                           ? 'bg-[#22D3EE] text-[#090A0E]'
-                          : 'text-slate-300 hover:text-white'
+                          : 'text-[#22D3EE] hover:bg-[#22D3EE]/15'
                       }`}
-                      title="Loopear la primera cola de inicio en 4 tiempos"
+                      title="Loop automático de la primera cola de inicio en el tiempo de la canción"
                     >
-                      Cola 4T
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => handleToggleIntroLoop(8)}
-                      className={`px-1.5 py-0.5 text-[10px] font-extrabold border-l border-white/10 transition-colors cursor-pointer whitespace-nowrap ${
-                        introLoopBeats === 8
-                          ? 'bg-[#22D3EE] text-[#090A0E]'
-                          : 'text-slate-300 hover:text-white'
-                      }`}
-                      title="Loopear la primera cola de inicio en 8 tiempos"
-                    >
-                      8T
+                      <Repeat className="w-3 h-3" />
+                      <span>{introLoopActive ? 'Loop ON' : 'Auto Loop'}</span>
                     </button>
                     {onCaptureIntroToPad && (
                       <button
                         type="button"
-                        onClick={() =>
-                          onCaptureIntroToPad(deck.id, introLoopBeats || 4)
-                        }
+                        onClick={() => onCaptureIntroToPad(deck.id)}
                         className="px-1.5 py-0.5 text-[10px] font-extrabold border-l border-white/10 text-[#FACC15] hover:bg-[#FACC15]/15 cursor-pointer whitespace-nowrap"
-                        title="Tomar primera cola de esta canción y mandarla al Sampler como base"
+                        title="Tomar automáticamente la primera cola de inicio y mandarla al Sampler como base"
                       >
                         → Pad
                       </button>
@@ -1030,30 +1018,24 @@ export const DeckPanel: React.FC<DeckPanelProps> = ({
 
           <button
             type="button"
-            onClick={() => {
-              if (deck.source === 'local' && deck.track && resolvedUrl) {
-                if (introLoopBeats === null) handleToggleIntroLoop(4);
-                else if (introLoopBeats === 4) handleToggleIntroLoop(8);
-                else handleToggleIntroLoop(8);
-              }
-            }}
+            onClick={handleToggleIntroLoop}
             onContextMenu={(e) => {
               e.preventDefault();
               if (onCaptureIntroToPad && deck.source === 'local' && deck.track) {
-                onCaptureIntroToPad(deck.id, introLoopBeats || 4);
+                onCaptureIntroToPad(deck.id);
               }
             }}
             disabled={deck.source !== 'local' || !deck.track}
             className={`min-h-[40px] px-1.5 rounded-lg border text-[10.5px] font-extrabold flex items-center justify-center gap-1 cursor-pointer disabled:opacity-40 ${
-              introLoopBeats
+              introLoopActive
                 ? 'bg-[#22D3EE] border-[#22D3EE] text-[#090A0E]'
                 : 'bg-[#0A0B0F] border-[#22D3EE]/50 text-[#22D3EE]'
             }`}
-            title="Loop de la primera cola (4T → 8T → Off). Mantén o ve a Pads para mandarla al Sampler"
+            title="Loop automático de la primera cola de inicio en tiempo"
           >
             <Repeat className="w-3.5 h-3.5 shrink-0" />
             <span className="truncate">
-              {introLoopBeats ? `Cola ${introLoopBeats}T` : 'Cola Loop'}
+              {introLoopActive ? 'Loop ON' : 'Auto Loop'}
             </span>
           </button>
 

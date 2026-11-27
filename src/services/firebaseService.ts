@@ -485,7 +485,11 @@ function sanitizeBanksForCloud(banks: SamplerBank[]): SamplerBank[] {
         pad.customAudioName = String(p.customAudioName).slice(0, 140);
       }
       if (p.loopMode && p.loopMode !== 'inherit') {
-        pad.loopMode = p.loopMode;
+        const rawMode = String(p.loopMode);
+        pad.loopMode =
+          rawMode === 'loop-4' || rawMode === 'loop-8' || rawMode === 'loop'
+            ? 'loop'
+            : 'oneshot';
       }
       if (typeof p.loopBpm === 'number' && Number.isFinite(p.loopBpm)) {
         pad.loopBpm = Math.max(40, Math.min(220, Math.round(p.loopBpm)));
