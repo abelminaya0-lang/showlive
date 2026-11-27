@@ -45,6 +45,7 @@ interface DeckPanelProps {
   onUnloadTrack?: () => void;
   onCaptureIntroToPad?: (deckId: DeckId) => void;
   onPlaybackError?: (message: string) => void;
+  onDetectedBpm?: (bpm: number) => void;
 }
 
 function formatTime(sec: number): string {
@@ -74,6 +75,7 @@ export const DeckPanel: React.FC<DeckPanelProps> = ({
   onUnloadTrack,
   onCaptureIntroToPad,
   onPlaybackError,
+  onDetectedBpm,
 }) => {
   const mediaRef = useRef<HTMLVideoElement | null>(null);
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
@@ -220,14 +222,20 @@ export const DeckPanel: React.FC<DeckPanelProps> = ({
 
   // Pre-analyze intro start & BPM and clean up active Web Audio loop when track changes
   useEffect(() => {
+    let cancelled = false;
     audioEngine.stopDeckIntroLoop(deck.id);
     introLoopActiveRef.current = false;
     setIntroLoopActive(false);
     setIntroLoopWindow(null);
     if (resolvedUrl && deck.source === 'local') {
-      audioEngine.analyzeAudioUrl(resolvedUrl);
+      audioEngine.analyzeAudioUrl(resolvedUrl).then((res) => {
+        if (!cancelled && res?.detectedBpm && !deck.track?.bpm) {
+          onDetectedBpm?.(res.detectedBpm);
+        }
+      });
     }
     return () => {
+      cancelled = true;
       audioEngine.stopDeckIntroLoop(deck.id);
     };
   }, [deck.id, deck.track?.id, resolvedUrl, deck.source]);

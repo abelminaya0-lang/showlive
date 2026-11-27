@@ -49,6 +49,7 @@ import {
   listDriveFolders,
   listDriveMusicFiles,
 } from './services/googleDriveService';
+import { extractBpmFromTrackName } from './utils/bpmUtils';
 
 const loadDeckPanel = () => import('./components/DeckPanel');
 const loadMixerPanel = () => import('./components/MixerPanel');
@@ -1274,6 +1275,7 @@ export default function App() {
           return {
             id: trackId,
             name: file.name,
+            bpm: extractBpmFromTrackName(file.name) ?? undefined,
             durationSec,
             sourceType: 'file',
             audioUrl: isVideo ? undefined : objectUrl,
@@ -1656,9 +1658,11 @@ export default function App() {
 
     try {
       const { objectUrl, durationSec, isVideo } = await downloadDriveMediaObjectUrl(token, file);
+      const parsedBpm = extractBpmFromTrackName(file.name);
       const track: TrackItem = {
         id: `drive-${file.id}`,
         name: file.name,
+        bpm: parsedBpm ?? undefined,
         durationSec,
         sourceType: 'file',
         audioUrl: isVideo ? undefined : objectUrl,
@@ -2199,6 +2203,11 @@ export default function App() {
               onUnloadTrack={() => handleUnloadDeck('A')}
               onCaptureIntroToPad={handleCaptureDeckIntro}
               onPlaybackError={(msg) => showToast(msg)}
+              onDetectedBpm={(bpm) =>
+                setDeckA((p) =>
+                  p.track && !p.track.bpm ? { ...p, track: { ...p.track, bpm } } : p
+                )
+              }
             />
           </div>
 
@@ -2272,6 +2281,11 @@ export default function App() {
               onUnloadTrack={() => handleUnloadDeck('B')}
               onCaptureIntroToPad={handleCaptureDeckIntro}
               onPlaybackError={(msg) => showToast(msg)}
+              onDetectedBpm={(bpm) =>
+                setDeckB((p) =>
+                  p.track && !p.track.bpm ? { ...p, track: { ...p.track, bpm } } : p
+                )
+              }
             />
           </div>
         </section>
@@ -2384,6 +2398,16 @@ export default function App() {
               onLoadMoreDrive={handleLoadMoreDrive}
               onSelectDriveFolder={setDriveSelectedFolderId}
               onLoadDriveFileToDeck={handleLoadDriveFileToDeck}
+              deckAStatus={{
+                isPlaying: deckA.isPlaying,
+                trackName: deckA.track?.name || deckA.youtubeTitle || null,
+                bpm: deckA.track?.bpm ?? null,
+              }}
+              deckBStatus={{
+                isPlaying: deckB.isPlaying,
+                trackName: deckB.track?.name || deckB.youtubeTitle || null,
+                bpm: deckB.track?.bpm ?? null,
+              }}
             />
           </div>
 

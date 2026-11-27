@@ -149,7 +149,7 @@ export async function listDriveMusicFiles(
   token: string,
   options: ListDriveMusicOptions = {}
 ): Promise<ListDriveMusicResult> {
-  const { query, folderId, folderIds, pageToken, pageSize = 100 } = options;
+  const { query, folderId, folderIds, pageToken, pageSize = 250 } = options;
 
   const mediaFilter =
     "(mimeType contains 'audio/' or mimeType contains 'video/' or fileExtension = 'mp3' or fileExtension = 'wav' or fileExtension = 'm4a' or fileExtension = 'ogg' or fileExtension = 'flac' or fileExtension = 'aac' or fileExtension = 'wma' or fileExtension = 'opus' or fileExtension = 'aiff' or fileExtension = 'aif' or fileExtension = 'alac' or fileExtension = 'm4b' or fileExtension = 'mp2' or fileExtension = 'amr' or fileExtension = 'ac3' or fileExtension = 'ape' or fileExtension = 'wv' or fileExtension = 'mp4' or fileExtension = 'mov' or fileExtension = 'webm' or fileExtension = 'mkv' or fileExtension = 'avi' or fileExtension = 'm4v' or fileExtension = 'flv' or fileExtension = '3gp')";

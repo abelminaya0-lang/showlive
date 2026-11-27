@@ -1,6 +1,9 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
+  ArrowLeftRight,
+  ArrowUpDown,
   Check,
+  Disc3,
   Download,
   Folder,
   FolderPlus,
@@ -28,6 +31,7 @@ import {
   YouTubeSearchResult,
 } from '../types/showlive';
 import { formatDriveFileSize } from '../services/googleDriveService';
+import { buildDriveTrackList, extractBpmFromTrackName } from '../utils/bpmUtils';
 
 interface LibraryPanelProps {
   activeTab: LibraryTab;
@@ -68,6 +72,8 @@ interface LibraryPanelProps {
   onLoadMoreDrive: () => void;
   onSelectDriveFolder: (folderId: string | null) => void;
   onLoadDriveFileToDeck: (file: DriveMusicFile, deck: DeckId) => void;
+  deckAStatus?: { isPlaying: boolean; trackName: string | null; bpm: number | null };
+  deckBStatus?: { isPlaying: boolean; trackName: string | null; bpm: number | null };
 }
 
 const QUICK_KARAOKE_QUERIES = [
@@ -115,6 +121,8 @@ export const LibraryPanel: React.FC<LibraryPanelProps> = ({
   onLoadMoreDrive,
   onSelectDriveFolder,
   onLoadDriveFileToDeck,
+  deckAStatus,
+  deckBStatus,
 }) => {
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const folderInputRef = useRef<HTMLInputElement | null>(null);
@@ -125,8 +133,59 @@ export const LibraryPanel: React.FC<LibraryPanelProps> = ({
   const [creatingPlaylist, setCreatingPlaylist] = useState(false);
   const [newPlaylistName, setNewPlaylistName] = useState('');
   const [isDraggingFiles, setIsDraggingFiles] = useState(false);
+  const [driveSortByBpm, setDriveSortByBpm] = useState(false);
+  const [driveRecommendMode, setDriveRecommendMode] = useState(false);
+  const [driveRecommendTargetOverride, setDriveRecommendTargetOverride] = useState<DeckId | null>(null);
   const driveSearchTimerRef = useRef<number | null>(null);
   const lastDriveSearchedQueryRef = useRef('');
+
+  // Resolve active live source deck & target deck (A <-> B) for BPM recommendations
+  const recommendationContext = useMemo(() => {
+    let sourceDeck: DeckId = 'A';
+    if (driveRecommendTargetOverride === 'A') {
+      sourceDeck = 'B';
+    } else if (driveRecommendTargetOverride === 'B') {
+      sourceDeck = 'A';
+    } else if (deckAStatus?.isPlaying && !deckBStatus?.isPlaying) {
+      sourceDeck = 'A';
+    } else if (deckBStatus?.isPlaying && !deckAStatus?.isPlaying) {
+      sourceDeck = 'B';
+    } else if (deckAStatus?.trackName && !deckBStatus?.trackName) {
+      sourceDeck = 'A';
+    } else if (deckBStatus?.trackName && !deckAStatus?.trackName) {
+      sourceDeck = 'B';
+    }
+
+    const targetDeck: DeckId = sourceDeck === 'A' ? 'B' : 'A';
+    const src = sourceDeck === 'A' ? deckAStatus : deckBStatus;
+    const referenceBpm =
+      src?.bpm || (src?.trackName ? extractBpmFromTrackName(src.trackName) : null);
+
+    return {
+      sourceDeck,
+      targetDeck,
+      sourceTrackName: src?.trackName || null,
+      referenceBpm,
+      isPlaying: Boolean(src?.isPlaying),
+    };
+  }, [deckAStatus, deckBStatus, driveRecommendTargetOverride]);
+
+  const displayedDriveTracks = useMemo(
+    () =>
+      buildDriveTrackList(driveFiles, {
+        sortByBpm: driveSortByBpm,
+        recommendMode: driveRecommendMode,
+        referenceBpm: recommendationContext.referenceBpm,
+        excludeTrackName: recommendationContext.sourceTrackName,
+      }),
+    [
+      driveFiles,
+      driveSortByBpm,
+      driveRecommendMode,
+      recommendationContext.referenceBpm,
+      recommendationContext.sourceTrackName,
+    ]
+  );
 
   useEffect(() => {
     if (activeTab !== 'drive' || needsDriveAuth) return;
@@ -829,6 +888,90 @@ export const LibraryPanel: React.FC<LibraryPanelProps> = ({
                     </button>
                   </form>
 
+                  {/* DJ BPM Organizer & Live Mix Recommendation Controls */}
+                  <div className="flex flex-wrap items-center gap-1.5 min-w-0 w-full">
+                    <button
+                      type="button"
+                      onClick={() => setDriveSortByBpm((v) => !v)}
+                      className={`inline-flex items-center gap-1 px-2.5 py-1 rounded border text-[11px] font-bold whitespace-nowrap cursor-pointer transition-colors ${
+                        driveSortByBpm
+                          ? 'bg-[#FACC15]/15 border-[#FACC15] text-[#FACC15]'
+                          : 'bg-[#0A0B0F] border-white/15 text-slate-300 hover:text-white'
+                      }`}
+                      title="Organizar tus canciones de Google Drive por BPM"
+                    >
+                      <ArrowUpDown className="w-3 h-3 shrink-0" />
+                      <span>Ordenar BPM</span>
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setDriveRecommendMode((v) => !v);
+                      }}
+                      className={`inline-flex items-center gap-1 px-2.5 py-1 rounded border text-[11px] font-extrabold whitespace-nowrap cursor-pointer transition-colors ${
+                        driveRecommendMode
+                          ? recommendationContext.targetDeck === 'B'
+                            ? 'bg-[#EC287B]/20 border-[#EC287B] text-[#F472B6] shadow-[0_0_10px_rgba(236,40,123,0.25)]'
+                            : 'bg-[#22D3EE]/20 border-[#22D3EE] text-[#67E8F9] shadow-[0_0_10px_rgba(34,211,238,0.25)]'
+                          : 'bg-[#0A0B0F] border-[#22D3EE]/45 text-[#22D3EE] hover:bg-[#22D3EE]/10'
+                      }`}
+                      title="Recomendar en vivo canciones de tu Drive según el BPM que está sonando para mezclar al otro lado"
+                    >
+                      <Disc3 className="w-3 h-3 shrink-0" />
+                      <span>
+                        {recommendationContext.referenceBpm
+                          ? `Recomendado BPM (${recommendationContext.referenceBpm}) → ${recommendationContext.targetDeck}`
+                          : `Recomendado según BPM → ${recommendationContext.targetDeck}`}
+                      </span>
+                    </button>
+
+                    {driveRecommendMode && (
+                      <button
+                        type="button"
+                        onClick={() =>
+                          setDriveRecommendTargetOverride(
+                            recommendationContext.targetDeck === 'B' ? 'A' : 'B'
+                          )
+                        }
+                        className="inline-flex items-center gap-1 px-2 py-1 rounded bg-[#0A0B0F] hover:bg-white/5 border border-white/15 text-[10px] font-bold text-slate-300 cursor-pointer whitespace-nowrap"
+                        title="Cambiar dirección de mezcla (Deck A ↔ Deck B)"
+                      >
+                        <ArrowLeftRight className="w-3 h-3 text-[#FACC15]" />
+                        <span>
+                          {recommendationContext.sourceDeck} → {recommendationContext.targetDeck}
+                        </span>
+                      </button>
+                    )}
+                  </div>
+
+                  {driveRecommendMode && (
+                    <div className="px-2.5 py-1.5 rounded bg-[#0A0B0F] border border-white/10 text-[11px] flex flex-wrap items-center justify-between gap-1.5 min-w-0">
+                      {recommendationContext.referenceBpm ? (
+                        <span className="text-slate-300 truncate">
+                          Mezcla en vivo para{' '}
+                          <strong
+                            className={
+                              recommendationContext.targetDeck === 'B'
+                                ? 'text-[#EC287B]'
+                                : 'text-[#22D3EE]'
+                            }
+                          >
+                            Deck {recommendationContext.targetDeck}
+                          </strong>{' '}
+                          · Base Deck {recommendationContext.sourceDeck}:{' '}
+                          <strong className="text-[#FACC15]">
+                            {recommendationContext.referenceBpm} BPM
+                          </strong>
+                        </span>
+                      ) : (
+                        <span className="text-amber-300">
+                          Carga o reproduce una pista en Deck A o Deck B para recomendar temas que encajen con su BPM.
+                        </span>
+                      )}
+                    </div>
+                  )}
+
                   {driveFolders.length > 0 && (
                     <div className="flex items-center gap-1.5 min-w-0 w-full max-w-full overflow-x-auto pb-0.5 no-scrollbar">
                       <button
@@ -978,18 +1121,26 @@ export const LibraryPanel: React.FC<LibraryPanelProps> = ({
                 </div>
               ) : (
                 <div className="divide-y divide-white/5 min-w-0">
-                  {driveFiles.map((file) => {
+                  {displayedDriveTracks.map(({ file, bpm, match }) => {
                     const isDownloading = driveLoadingFileId === file.id;
                     const ext =
                       file.fileExtension?.toUpperCase() ||
                       file.name.split('.').pop()?.toUpperCase() ||
                       (file.mimeType.startsWith('video/') ? 'VIDEO' : 'AUDIO');
                     const sizeLabel = formatDriveFileSize(file.size);
+                    const isRecommendedMatch =
+                      driveRecommendMode && match && match.tier !== 'none';
+                    const highlightA =
+                      isRecommendedMatch && recommendationContext.targetDeck === 'A';
+                    const highlightB =
+                      isRecommendedMatch && recommendationContext.targetDeck === 'B';
 
                     return (
                       <div
                         key={file.id}
-                        className="flex items-center justify-between gap-2.5 px-3 md:px-4 py-2 hover:bg-white/[0.03] transition-colors min-w-0"
+                        className={`flex items-center justify-between gap-2.5 px-3 md:px-4 py-2 hover:bg-white/[0.03] transition-colors min-w-0 ${
+                          isRecommendedMatch ? 'bg-[#34D399]/[0.04]' : ''
+                        }`}
                       >
                         <div className="min-w-0 flex items-center gap-2.5 flex-1">
                           <Music className="w-4 h-4 text-[#34D399] shrink-0" />
@@ -997,10 +1148,30 @@ export const LibraryPanel: React.FC<LibraryPanelProps> = ({
                             <p className="text-xs font-medium text-slate-100 truncate">
                               {file.name}
                             </p>
-                            <p className="text-[10px] text-slate-400 flex items-center gap-1.5">
+                            <p className="text-[10px] text-slate-400 flex flex-wrap items-center gap-1.5">
                               <span className="px-1.5 py-0.2 rounded bg-white/5 border border-white/10 font-mono-tabular">
                                 {ext}
                               </span>
+                              {bpm && (
+                                <span className="px-1.5 py-0.2 rounded bg-[#FACC15]/10 border border-[#FACC15]/35 text-[#FACC15] font-mono-tabular font-bold">
+                                  {bpm} BPM
+                                </span>
+                              )}
+                              {isRecommendedMatch && match && (
+                                <span
+                                  className={`px-1.5 py-0.2 rounded border font-bold ${
+                                    match.tier === 'exact'
+                                      ? 'bg-[#34D399]/15 border-[#34D399]/60 text-[#34D399]'
+                                      : match.tier === 'good'
+                                      ? 'bg-[#22D3EE]/15 border-[#22D3EE]/60 text-[#22D3EE]'
+                                      : match.tier === 'harmonic'
+                                      ? 'bg-purple-500/20 border-purple-400/60 text-purple-200'
+                                      : 'bg-amber-500/15 border-amber-400/50 text-amber-300'
+                                  }`}
+                                >
+                                  {match.label}
+                                </span>
+                              )}
                               {sizeLabel && <span>{sizeLabel}</span>}
                             </p>
                           </div>
@@ -1011,7 +1182,11 @@ export const LibraryPanel: React.FC<LibraryPanelProps> = ({
                             type="button"
                             disabled={isDownloading}
                             onClick={() => onLoadDriveFileToDeck(file, 'A')}
-                            className="h-7 min-w-[34px] px-2.5 rounded bg-[#0A0B0F] hover:bg-[#22D3EE] disabled:opacity-50 border border-[#22D3EE]/70 text-[#22D3EE] hover:text-[#090A0E] text-xs font-extrabold flex items-center justify-center transition-colors cursor-pointer"
+                            className={`h-7 min-w-[34px] px-2.5 rounded border text-xs font-extrabold flex items-center justify-center transition-colors cursor-pointer disabled:opacity-50 ${
+                              highlightA
+                                ? 'bg-[#22D3EE] border-[#22D3EE] text-[#090A0E] shadow-[0_0_10px_rgba(34,211,238,0.45)]'
+                                : 'bg-[#0A0B0F] hover:bg-[#22D3EE] border-[#22D3EE]/70 text-[#22D3EE] hover:text-[#090A0E]'
+                            }`}
                             title="Cargar en Deck A"
                           >
                             {isDownloading ? (
@@ -1025,7 +1200,11 @@ export const LibraryPanel: React.FC<LibraryPanelProps> = ({
                             type="button"
                             disabled={isDownloading}
                             onClick={() => onLoadDriveFileToDeck(file, 'B')}
-                            className="h-7 min-w-[34px] px-2.5 rounded bg-[#0A0B0F] hover:bg-[#EC287B] disabled:opacity-50 border border-[#EC287B]/70 text-[#EC287B] hover:text-white text-xs font-extrabold flex items-center justify-center transition-colors cursor-pointer"
+                            className={`h-7 min-w-[34px] px-2.5 rounded border text-xs font-extrabold flex items-center justify-center transition-colors cursor-pointer disabled:opacity-50 ${
+                              highlightB
+                                ? 'bg-[#EC287B] border-[#EC287B] text-white shadow-[0_0_10px_rgba(236,40,123,0.45)]'
+                                : 'bg-[#0A0B0F] hover:bg-[#EC287B] border-[#EC287B]/70 text-[#EC287B] hover:text-white'
+                            }`}
                             title="Cargar en Deck B"
                           >
                             {isDownloading ? (
