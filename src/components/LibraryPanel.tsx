@@ -1,4 +1,4 @@
-import React, { useMemo, useRef, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
   Check,
   Download,
@@ -16,6 +16,7 @@ import {
   Trash2,
   Upload,
   Wand2,
+  X,
 } from 'lucide-react';
 import {
   DeckId,
@@ -124,6 +125,28 @@ export const LibraryPanel: React.FC<LibraryPanelProps> = ({
   const [creatingPlaylist, setCreatingPlaylist] = useState(false);
   const [newPlaylistName, setNewPlaylistName] = useState('');
   const [isDraggingFiles, setIsDraggingFiles] = useState(false);
+  const driveSearchTimerRef = useRef<number | null>(null);
+  const lastDriveSearchedQueryRef = useRef('');
+
+  useEffect(() => {
+    if (activeTab !== 'drive' || needsDriveAuth) return;
+    if (driveQuery === lastDriveSearchedQueryRef.current) return;
+
+    if (driveSearchTimerRef.current) {
+      window.clearTimeout(driveSearchTimerRef.current);
+    }
+
+    driveSearchTimerRef.current = window.setTimeout(() => {
+      lastDriveSearchedQueryRef.current = driveQuery;
+      onSearchDrive(driveQuery, driveSelectedFolderId);
+    }, 350);
+
+    return () => {
+      if (driveSearchTimerRef.current) {
+        window.clearTimeout(driveSearchTimerRef.current);
+      }
+    };
+  }, [activeTab, needsDriveAuth, driveQuery, driveSelectedFolderId, onSearchDrive]);
 
   const visibleTracks = tracks.filter((t) => {
     const matchesPlaylist =
@@ -331,7 +354,7 @@ export const LibraryPanel: React.FC<LibraryPanelProps> = ({
 
       {/* Main Center Content */}
       <div
-        className={`flex-1 min-w-0 flex flex-col relative ${
+        className={`flex-1 min-w-0 flex flex-col relative overflow-hidden ${
           isDraggingFiles ? 'ring-2 ring-inset ring-[#F4256A] bg-[#F4256A]/5' : ''
         }`}
         onDragOver={(e) => {
@@ -548,8 +571,8 @@ export const LibraryPanel: React.FC<LibraryPanelProps> = ({
           </>
         ) : activeTab === 'youtube' ? (
           /* YOUTUBE KARAOKE SEARCH VIEW */
-          <div className="flex-1 flex flex-col min-h-0 bg-[#0C0D12]">
-            <div className="p-3.5 border-b border-white/10 bg-[#101218] flex flex-col gap-2.5">
+          <div className="flex-1 min-w-0 flex flex-col min-h-0 overflow-hidden bg-[#0C0D12]">
+            <div className="p-3.5 border-b border-white/10 bg-[#101218] flex flex-col gap-2.5 min-w-0">
               <p className="font-display text-sm font-extrabold text-[#FACC15] leading-none">
                 Buscador de Karaoke
               </p>
@@ -709,28 +732,31 @@ export const LibraryPanel: React.FC<LibraryPanelProps> = ({
           </div>
         ) : (
           /* GOOGLE DRIVE MUSIC BROWSER VIEW */
-          <div className="flex-1 flex flex-col min-h-0 bg-[#0C0D12]">
-            <div className="p-3.5 border-b border-white/10 bg-[#101218] flex flex-col gap-2.5">
-              <div className="flex flex-wrap items-center justify-between gap-2">
-                <div className="flex items-center gap-2 min-w-0">
+          <div className="flex-1 min-w-0 w-full flex flex-col min-h-0 overflow-hidden bg-[#0C0D12]">
+            <div className="p-3 border-b border-white/10 bg-[#101218] flex flex-col gap-2 min-w-0 w-full">
+              <div className="flex flex-wrap items-center justify-between gap-2 min-w-0">
+                <div className="flex items-center gap-2 min-w-0 flex-1">
                   <HardDrive className="w-4 h-4 text-[#34D399] shrink-0" />
-                  <p className="font-display text-sm font-extrabold text-[#34D399] leading-none">
+                  <p className="font-display text-sm font-extrabold text-[#34D399] leading-none truncate">
                     Música en Google Drive
                   </p>
                   {driveAccountEmail && !needsDriveAuth && (
-                    <span className="hidden sm:inline-block px-2 py-0.5 rounded bg-[#0A0B0F] border border-[#34D399]/30 text-[10px] text-slate-300 truncate max-w-[200px]">
+                    <span className="hidden sm:inline-block px-2 py-0.5 rounded bg-[#0A0B0F] border border-[#34D399]/30 text-[10px] text-slate-300 truncate max-w-[180px]">
                       {driveAccountEmail}
                     </span>
                   )}
                 </div>
 
                 {!needsDriveAuth && (
-                  <div className="flex items-center gap-1.5">
+                  <div className="flex items-center gap-1.5 shrink-0">
                     <button
                       type="button"
-                      onClick={() => onSearchDrive(driveQuery, driveSelectedFolderId)}
+                      onClick={() => {
+                        lastDriveSearchedQueryRef.current = driveQuery;
+                        onSearchDrive(driveQuery, driveSelectedFolderId);
+                      }}
                       disabled={driveLoading}
-                      className="inline-flex items-center gap-1 px-2.5 py-1 rounded bg-[#0A0B0F] hover:bg-[#181C26] border border-white/15 text-[11px] font-bold text-slate-200 cursor-pointer disabled:opacity-50"
+                      className="inline-flex items-center gap-1 px-2.5 py-1 rounded bg-[#0A0B0F] hover:bg-[#181C26] border border-white/15 text-[11px] font-bold text-slate-200 cursor-pointer disabled:opacity-50 whitespace-nowrap"
                       title="Actualizar lista de Google Drive"
                     >
                       <RefreshCw className={`w-3 h-3 ${driveLoading ? 'animate-spin' : ''}`} />
@@ -740,7 +766,7 @@ export const LibraryPanel: React.FC<LibraryPanelProps> = ({
                       type="button"
                       onClick={onConnectDrive}
                       disabled={driveConnecting}
-                      className="inline-flex items-center gap-1 px-2.5 py-1 rounded bg-[#0A0B0F] hover:bg-[#181C26] border border-[#34D399]/50 text-[11px] font-bold text-[#34D399] cursor-pointer disabled:opacity-50"
+                      className="inline-flex items-center gap-1 px-2.5 py-1 rounded bg-[#0A0B0F] hover:bg-[#181C26] border border-[#34D399]/50 text-[11px] font-bold text-[#34D399] cursor-pointer disabled:opacity-50 whitespace-nowrap"
                     >
                       <span>Cambiar cuenta</span>
                     </button>
@@ -753,43 +779,66 @@ export const LibraryPanel: React.FC<LibraryPanelProps> = ({
                   <form
                     onSubmit={(e) => {
                       e.preventDefault();
+                      if (driveSearchTimerRef.current) {
+                        window.clearTimeout(driveSearchTimerRef.current);
+                      }
+                      lastDriveSearchedQueryRef.current = driveQuery;
                       onSearchDrive(driveQuery, driveSelectedFolderId);
                     }}
-                    className="flex items-center gap-2"
+                    className="flex items-center gap-2 min-w-0 w-full"
                   >
-                    <div className="flex-1 min-w-0 flex items-center gap-2 px-3 py-1 rounded-md bg-[#0A0B0F] border border-white/15 focus-within:border-[#34D399] transition-colors">
-                      <Search className="w-4 h-4 text-[#34D399] shrink-0" />
+                    <div className="flex-1 min-w-0 flex items-center gap-2 px-2.5 py-1 rounded-md bg-[#0A0B0F] border border-white/15 focus-within:border-[#34D399] transition-colors">
+                      <Search className="w-3.5 h-3.5 text-[#34D399] shrink-0" />
                       <input
                         type="text"
                         value={driveQuery}
                         onChange={(e) => setDriveQuery(e.target.value)}
                         placeholder="Buscar canción o artista en tu Google Drive..."
-                        className="flex-1 min-w-0 py-1 bg-transparent text-xs sm:text-sm text-white placeholder:text-slate-500 focus:outline-none"
+                        className="flex-1 min-w-0 py-0.5 bg-transparent text-xs sm:text-sm text-white placeholder:text-slate-500 focus:outline-none"
                       />
+                      {driveQuery && (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            if (driveSearchTimerRef.current) {
+                              window.clearTimeout(driveSearchTimerRef.current);
+                            }
+                            lastDriveSearchedQueryRef.current = '';
+                            setDriveQuery('');
+                            onSearchDrive('', driveSelectedFolderId);
+                          }}
+                          className="p-0.5 rounded hover:bg-white/10 text-slate-400 hover:text-white cursor-pointer shrink-0"
+                          title="Limpiar búsqueda"
+                          aria-label="Limpiar búsqueda"
+                        >
+                          <X className="w-3.5 h-3.5" />
+                        </button>
+                      )}
                     </div>
                     <button
                       type="submit"
                       disabled={driveLoading}
-                      className="px-4 py-2 rounded-md bg-[#34D399] hover:bg-[#10B981] disabled:opacity-60 text-[#090A0E] text-xs sm:text-sm font-extrabold flex items-center gap-1.5 cursor-pointer whitespace-nowrap transition-colors"
+                      className="shrink-0 px-3 sm:px-3.5 py-1.5 rounded-md bg-[#34D399] hover:bg-[#10B981] disabled:opacity-60 text-[#090A0E] text-xs font-extrabold flex items-center gap-1.5 cursor-pointer whitespace-nowrap transition-colors"
                     >
                       {driveLoading ? (
-                        <Loader2 className="w-4 h-4 animate-spin" />
+                        <Loader2 className="w-3.5 h-3.5 animate-spin" />
                       ) : (
-                        <Search className="w-4 h-4" />
+                        <Search className="w-3.5 h-3.5" />
                       )}
                       <span>Buscar</span>
                     </button>
                   </form>
 
                   {driveFolders.length > 0 && (
-                    <div className="flex items-center gap-1.5 overflow-x-auto no-scrollbar">
+                    <div className="flex items-center gap-1.5 min-w-0 w-full max-w-full overflow-x-auto pb-0.5 no-scrollbar">
                       <button
                         type="button"
                         onClick={() => {
                           onSelectDriveFolder(null);
+                          lastDriveSearchedQueryRef.current = driveQuery;
                           onSearchDrive(driveQuery, null);
                         }}
-                        className={`px-2.5 py-1 rounded border text-[11px] font-bold whitespace-nowrap cursor-pointer transition-colors ${
+                        className={`shrink-0 px-2.5 py-1 rounded border text-[11px] font-bold whitespace-nowrap cursor-pointer transition-colors ${
                           !driveSelectedFolderId
                             ? 'bg-[#34D399]/15 border-[#34D399] text-[#34D399]'
                             : 'bg-[#0A0B0F] border-white/15 text-slate-300 hover:text-white'
@@ -805,16 +854,18 @@ export const LibraryPanel: React.FC<LibraryPanelProps> = ({
                             type="button"
                             onClick={() => {
                               onSelectDriveFolder(folder.id);
+                              lastDriveSearchedQueryRef.current = driveQuery;
                               onSearchDrive(driveQuery, folder.id);
                             }}
-                            className={`inline-flex items-center gap-1 px-2.5 py-1 rounded border text-[11px] font-semibold whitespace-nowrap cursor-pointer transition-colors ${
+                            title={folder.name}
+                            className={`shrink-0 inline-flex items-center gap-1 px-2.5 py-1 rounded border text-[11px] font-semibold whitespace-nowrap cursor-pointer transition-colors max-w-[210px] ${
                               active
                                 ? 'bg-[#34D399]/15 border-[#34D399] text-[#34D399]'
                                 : 'bg-[#0A0B0F] border-white/15 text-slate-300 hover:text-white'
                             }`}
                           >
                             <Folder className="w-3 h-3 shrink-0" />
-                            <span>{folder.name}</span>
+                            <span className="truncate">{folder.name}</span>
                           </button>
                         );
                       })}
@@ -824,7 +875,7 @@ export const LibraryPanel: React.FC<LibraryPanelProps> = ({
               )}
             </div>
 
-            <div className="flex-1 overflow-y-auto">
+            <div className="flex-1 min-w-0 overflow-y-auto overflow-x-hidden">
               {driveError && (
                 <div className="m-3 p-3 rounded-lg bg-red-500/10 border border-red-500/30 text-xs text-red-200 space-y-2">
                   <p>{driveError}</p>
@@ -911,9 +962,22 @@ export const LibraryPanel: React.FC<LibraryPanelProps> = ({
                   <p className="text-xs text-slate-400 mt-1 max-w-md">
                     Prueba buscando otro nombre o seleccionando &quot;Todas las carpetas&quot;.
                   </p>
+                  {driveSelectedFolderId && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        onSelectDriveFolder(null);
+                        lastDriveSearchedQueryRef.current = driveQuery;
+                        onSearchDrive(driveQuery, null);
+                      }}
+                      className="mt-3 px-3 py-1.5 rounded bg-[#34D399]/15 hover:bg-[#34D399]/25 border border-[#34D399]/60 text-xs font-bold text-[#34D399] cursor-pointer transition-colors"
+                    >
+                      Buscar en todo Google Drive
+                    </button>
+                  )}
                 </div>
               ) : (
-                <div className="divide-y divide-white/5">
+                <div className="divide-y divide-white/5 min-w-0">
                   {driveFiles.map((file) => {
                     const isDownloading = driveLoadingFileId === file.id;
                     const ext =
@@ -925,12 +989,12 @@ export const LibraryPanel: React.FC<LibraryPanelProps> = ({
                     return (
                       <div
                         key={file.id}
-                        className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 px-3 md:px-4 py-2.5 hover:bg-white/[0.03] transition-colors"
+                        className="flex items-center justify-between gap-2.5 px-3 md:px-4 py-2 hover:bg-white/[0.03] transition-colors min-w-0"
                       >
                         <div className="min-w-0 flex items-center gap-2.5 flex-1">
                           <Music className="w-4 h-4 text-[#34D399] shrink-0" />
                           <div className="min-w-0 flex-1">
-                            <p className="text-xs sm:text-sm md:text-xs font-medium text-slate-100 truncate">
+                            <p className="text-xs font-medium text-slate-100 truncate">
                               {file.name}
                             </p>
                             <p className="text-[10px] text-slate-400 flex items-center gap-1.5">
@@ -947,13 +1011,13 @@ export const LibraryPanel: React.FC<LibraryPanelProps> = ({
                             type="button"
                             disabled={isDownloading}
                             onClick={() => onLoadDriveFileToDeck(file, 'A')}
-                            className="flex-1 sm:flex-none px-3 h-8 md:h-7 rounded bg-[#0A0B0F] hover:bg-[#22D3EE] disabled:opacity-50 border border-[#22D3EE]/70 text-[#22D3EE] hover:text-[#090A0E] text-xs font-extrabold flex items-center justify-center gap-1 transition-colors cursor-pointer"
-                            title="Cargar canción de Google Drive en Deck A"
+                            className="h-7 min-w-[34px] px-2.5 rounded bg-[#0A0B0F] hover:bg-[#22D3EE] disabled:opacity-50 border border-[#22D3EE]/70 text-[#22D3EE] hover:text-[#090A0E] text-xs font-extrabold flex items-center justify-center transition-colors cursor-pointer"
+                            title="Cargar en Deck A"
                           >
                             {isDownloading ? (
                               <Loader2 className="w-3.5 h-3.5 animate-spin" />
                             ) : (
-                              <span>Deck A</span>
+                              'A'
                             )}
                           </button>
 
@@ -961,13 +1025,13 @@ export const LibraryPanel: React.FC<LibraryPanelProps> = ({
                             type="button"
                             disabled={isDownloading}
                             onClick={() => onLoadDriveFileToDeck(file, 'B')}
-                            className="flex-1 sm:flex-none px-3 h-8 md:h-7 rounded bg-[#0A0B0F] hover:bg-[#EC287B] disabled:opacity-50 border border-[#EC287B]/70 text-[#EC287B] hover:text-white text-xs font-extrabold flex items-center justify-center gap-1 transition-colors cursor-pointer"
-                            title="Cargar canción de Google Drive en Deck B"
+                            className="h-7 min-w-[34px] px-2.5 rounded bg-[#0A0B0F] hover:bg-[#EC287B] disabled:opacity-50 border border-[#EC287B]/70 text-[#EC287B] hover:text-white text-xs font-extrabold flex items-center justify-center transition-colors cursor-pointer"
+                            title="Cargar en Deck B"
                           >
                             {isDownloading ? (
                               <Loader2 className="w-3.5 h-3.5 animate-spin" />
                             ) : (
-                              <span>Deck B</span>
+                              'B'
                             )}
                           </button>
                         </div>

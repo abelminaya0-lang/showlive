@@ -45,6 +45,7 @@ import {
   DriveAuthError,
   clearDriveMediaCache,
   downloadDriveMediaObjectUrl,
+  getDescendantFolderIds,
   listDriveFolders,
   listDriveMusicFiles,
 } from './services/googleDriveService';
@@ -171,6 +172,7 @@ export default function App() {
   const [needsDriveAuth, setNeedsDriveAuth] = useState(() => !getDriveAccessToken());
   const [driveConnecting, setDriveConnecting] = useState(false);
   const [driveAccountEmail, setDriveAccountEmail] = useState<string | null>(null);
+  const [driveHasLoaded, setDriveHasLoaded] = useState(false);
 
   // AI & Modals State
   const [aiConfig, setAiConfig] = useState<IAModelConfig>({
@@ -203,6 +205,9 @@ export default function App() {
   const hydratedUidRef = useRef<string | null>(null);
   const loggedEntryForUidRef = useRef<string | null>(null);
   const cloudSaveTimerRef = useRef<number | null>(null);
+  const driveReqSeqRef = useRef(0);
+  const driveFoldersRef = useRef(driveFolders);
+  driveFoldersRef.current = driveFolders;
   const tracksRef = useRef(tracks);
   tracksRef.current = tracks;
   const selectedPlaylistIdRef = useRef(selectedPlaylistId);
@@ -1491,42 +1496,52 @@ export default function App() {
         return;
       }
 
+      const reqId = ++driveReqSeqRef.current;
       setDriveLoading(true);
       setDriveError(null);
       setDriveQuery(query);
 
       try {
-        const shouldFetchFolders = refreshFolders || driveFolders.length === 0;
+        const shouldFetchFolders = refreshFolders || driveFoldersRef.current.length === 0;
+        const folderIds = folderId
+          ? getDescendantFolderIds(folderId, driveFoldersRef.current)
+          : undefined;
         const [musicRes, foldersRes] = await Promise.all([
-          listDriveMusicFiles(token, { query, folderId }),
+          listDriveMusicFiles(token, { query, folderId, folderIds }),
           shouldFetchFolders ? listDriveFolders(token) : Promise.resolve(null),
         ]);
+        if (reqId !== driveReqSeqRef.current) return;
         setDriveFiles(musicRes.files);
         setDriveNextPageToken(musicRes.nextPageToken);
         if (foldersRes) {
           setDriveFolders(foldersRes);
         }
+        setDriveHasLoaded(true);
         setNeedsDriveAuth(false);
       } catch (err: any) {
+        if (reqId !== driveReqSeqRef.current) return;
         if (err instanceof DriveAuthError) {
           clearDriveAccessToken();
           setNeedsDriveAuth(true);
+          setDriveHasLoaded(false);
           setDriveError(err.message);
         } else {
           setDriveError(err?.message || 'No se pudo cargar tu música de Google Drive.');
         }
       } finally {
-        setDriveLoading(false);
+        if (reqId === driveReqSeqRef.current) {
+          setDriveLoading(false);
+        }
       }
     },
-    [driveFolders.length]
+    []
   );
 
   useEffect(() => {
     if (
       libraryTab === 'drive' &&
       !needsDriveAuth &&
-      driveFiles.length === 0 &&
+      !driveHasLoaded &&
       !driveLoading &&
       !driveError
     ) {
@@ -1538,7 +1553,7 @@ export default function App() {
   }, [
     libraryTab,
     needsDriveAuth,
-    driveFiles.length,
+    driveHasLoaded,
     driveLoading,
     driveError,
     driveQuery,
@@ -1550,6 +1565,7 @@ export default function App() {
     if (driveConnecting) return;
     setDriveConnecting(true);
     setDriveError(null);
+    setDriveHasLoaded(false);
     try {
       const { user, accessToken, email } = await signInGoogleForDrive({
         allowRedirectFallback: true,
@@ -1586,10 +1602,13 @@ export default function App() {
     }
   };
 
-  const handleSearchDrive = (query: string, folderId?: string | null) => {
-    const resolvedFolder = folderId !== undefined ? folderId : driveSelectedFolderId;
-    loadDriveLibrary(undefined, query, resolvedFolder, false);
-  };
+  const handleSearchDrive = useCallback(
+    (query: string, folderId?: string | null) => {
+      const resolvedFolder = folderId !== undefined ? folderId : driveSelectedFolderId;
+      loadDriveLibrary(undefined, query, resolvedFolder, false);
+    },
+    [driveSelectedFolderId, loadDriveLibrary]
+  );
 
   const handleLoadMoreDrive = async () => {
     const token = getDriveAccessToken();
@@ -1597,9 +1616,13 @@ export default function App() {
     setDriveLoadingMore(true);
     setDriveError(null);
     try {
+      const folderIds = driveSelectedFolderId
+        ? getDescendantFolderIds(driveSelectedFolderId, driveFoldersRef.current)
+        : undefined;
       const res = await listDriveMusicFiles(token, {
         query: driveQuery,
         folderId: driveSelectedFolderId,
+        folderIds,
         pageToken: driveNextPageToken,
       });
       setDriveFiles((prev) => [...prev, ...res.files]);
@@ -1608,6 +1631,7 @@ export default function App() {
       if (err instanceof DriveAuthError) {
         clearDriveAccessToken();
         setNeedsDriveAuth(true);
+        setDriveHasLoaded(false);
         setDriveError(err.message);
       } else {
         setDriveError(err?.message || 'No se pudieron cargar más canciones.');
@@ -2261,8 +2285,8 @@ export default function App() {
               workspaceMode === 'pads'
                 ? 'hidden'
                 : mobileTab === 'library'
-                ? 'flex flex-1 min-h-0'
-                : 'hidden lg:flex lg:flex-1 lg:min-h-0'
+                ? 'flex flex-1 min-h-0 min-w-0 overflow-hidden'
+                : 'hidden lg:flex lg:flex-1 lg:min-h-0 lg:min-w-0 overflow-hidden'
             }
           >
             <LibraryPanel
