@@ -22,6 +22,7 @@ import {
 } from './audio/demoTracks';
 import { LandingView } from './components/LandingView';
 import {
+  DRIVE_REDIRECT_UI_FLAG,
   auth,
   clearDriveAccessToken,
   getDriveAccessToken,
@@ -367,6 +368,15 @@ export default function App() {
             setNeedsDriveAuth(false);
             setDriveAccountEmail(result.user.email || null);
           }
+          try {
+            if (sessionStorage.getItem(DRIVE_REDIRECT_UI_FLAG) === '1') {
+              sessionStorage.removeItem(DRIVE_REDIRECT_UI_FLAG);
+              setLibraryTab('drive');
+              setMobileTab('library');
+            }
+          } catch {
+            // Ignore storage errors
+          }
         }
       })
       .catch((err: any) => {
@@ -519,13 +529,11 @@ export default function App() {
     setAuthError(null);
     setAuthNotice(null);
     try {
-      const result = await signInWithPopup(auth, googleProvider);
-      const credential = GoogleAuthProvider.credentialFromResult(result);
-      if (credential?.accessToken) {
-        setDriveAccessToken(credential.accessToken, result.user.email || null);
-        setNeedsDriveAuth(false);
-        setDriveAccountEmail(result.user.email || null);
-      }
+      const { user, email } = await signInGoogleForDrive({
+        allowRedirectFallback: false,
+      });
+      setNeedsDriveAuth(false);
+      setDriveAccountEmail(email || user.email || null);
       setShowLoginScreen(false);
     } catch (err: any) {
       const code = String(err?.code || '');
@@ -1514,12 +1522,38 @@ export default function App() {
     [driveFolders.length]
   );
 
+  useEffect(() => {
+    if (
+      libraryTab === 'drive' &&
+      !needsDriveAuth &&
+      driveFiles.length === 0 &&
+      !driveLoading &&
+      !driveError
+    ) {
+      const token = getDriveAccessToken();
+      if (token) {
+        loadDriveLibrary(token, driveQuery, driveSelectedFolderId, true);
+      }
+    }
+  }, [
+    libraryTab,
+    needsDriveAuth,
+    driveFiles.length,
+    driveLoading,
+    driveError,
+    driveQuery,
+    driveSelectedFolderId,
+    loadDriveLibrary,
+  ]);
+
   const handleConnectDrive = async () => {
     if (driveConnecting) return;
     setDriveConnecting(true);
     setDriveError(null);
     try {
-      const { user, accessToken, email } = await signInGoogleForDrive();
+      const { user, accessToken, email } = await signInGoogleForDrive({
+        allowRedirectFallback: true,
+      });
       const accountEmail = email || user?.email || null;
       setDriveAccountEmail(accountEmail);
       setNeedsDriveAuth(false);
@@ -1528,13 +1562,22 @@ export default function App() {
       showToast(`Google Drive conectado (${accountEmail || 'Google'})`);
     } catch (err: any) {
       const code = String(err?.code || '');
+      if (code === 'auth/redirect-started') {
+        return;
+      }
       let msg = err?.message || 'No se pudo conectar con Google Drive.';
       if (code === 'auth/popup-closed-by-user') {
         msg = 'Cerraste la ventana de Google antes de conectar tu Drive.';
-      } else if (code === 'auth/popup-blocked') {
-        msg = 'Tu navegador bloqueó la ventana emergente de Google. Permite los popups o abre ShowLive en una pestaña nueva.';
+      } else if (code === 'auth/cancelled-popup-request') {
+        msg = 'Ya hay una ventana de Google abierta. Completa el acceso o intenta de nuevo.';
+      } else if (
+        code === 'auth/popup-blocked' ||
+        code === 'auth/operation-not-supported-in-this-environment'
+      ) {
+        msg =
+          'Tu navegador bloqueó la ventana de Google dentro de la vista previa. Pulsa "Abrir en pestaña nueva" abajo para conectar tu Google Drive.';
       } else if (code === 'auth/unauthorized-domain') {
-        msg = `El dominio "${window.location.hostname}" no está autorizado en Firebase Auth. Abre ShowLive en pestaña nueva o recarga para usar la conexión directa de Google.`;
+        msg = `El dominio "${window.location.hostname}" no está autorizado en Firebase Console (Authentication → Settings → Authorized domains).`;
       }
       setDriveError(msg);
       showToast(msg);

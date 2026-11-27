@@ -3,8 +3,8 @@ import {
   GoogleAuthProvider,
   User,
   getAuth,
+  linkWithPopup,
   onAuthStateChanged,
-  signInWithCredential,
   signInWithPopup,
   signInWithRedirect,
 } from 'firebase/auth';
@@ -62,178 +62,90 @@ export const initDriveAuth = (
   onAuthSuccess?: (user: User | null, token: string, email: string | null) => void,
   onAuthFailure?: () => void
 ) => {
-  let hadFirebaseUser = Boolean(auth.currentUser);
   return onAuthStateChanged(auth, (user: User | null) => {
     if (user) {
-      hadFirebaseUser = true;
       if (cachedDriveAccessToken) {
         onAuthSuccess?.(user, cachedDriveAccessToken, cachedDriveEmail || user.email || null);
       } else if (!isDriveSigningIn) {
         cachedDriveAccessToken = null;
-        onAuthFailure?.();
-      }
-    } else {
-      if (hadFirebaseUser) {
-        hadFirebaseUser = false;
-        cachedDriveAccessToken = null;
         cachedDriveEmail = null;
         onAuthFailure?.();
-      } else if (cachedDriveAccessToken) {
-        onAuthSuccess?.(null, cachedDriveAccessToken, cachedDriveEmail);
-      } else if (!isDriveSigningIn) {
-        onAuthFailure?.();
       }
+    } else if (!isDriveSigningIn) {
+      cachedDriveAccessToken = null;
+      cachedDriveEmail = null;
+      onAuthFailure?.();
     }
   });
 };
 
-interface GisTokenResponse {
-  access_token?: string;
-  error?: string;
-  error_description?: string;
-}
+export const DRIVE_REDIRECT_UI_FLAG = 'showlive_drive_redirect';
 
-interface GisClientError {
-  type?: string;
-  message?: string;
-}
-
-interface GisOAuth2 {
-  initTokenClient: (config: {
-    client_id: string;
-    scope: string;
-    callback: (resp: GisTokenResponse) => void;
-    error_callback?: (err: GisClientError) => void;
-  }) => {
-    requestAccessToken: (overrideConfig?: { prompt?: string }) => void;
-  };
-}
-
-function getGisOAuth2(): GisOAuth2 | null {
-  return (
-    (window as unknown as { google?: { accounts?: { oauth2?: GisOAuth2 } } })?.google?.accounts
-      ?.oauth2 || null
-  );
-}
-
-async function fetchDriveAccountEmail(accessToken: string): Promise<string | null> {
-  try {
-    const res = await fetch(
-      'https://www.googleapis.com/drive/v3/about?fields=user(emailAddress,displayName)',
-      { headers: { Authorization: `Bearer ${accessToken}` } }
-    );
-    if (!res.ok) return null;
-    const data = await res.json();
-    return typeof data?.user?.emailAddress === 'string' ? data.user.emailAddress : null;
-  } catch {
-    return null;
-  }
-}
-
-function requestTokenWithGis(clientId: string): Promise<string> {
-  const oauth2 = getGisOAuth2();
-  if (!oauth2) {
-    return Promise.reject(new Error('GIS_NOT_LOADED'));
-  }
-
-  return new Promise<string>((resolve, reject) => {
-    const client = oauth2.initTokenClient({
-      client_id: clientId,
-      scope: DRIVE_SCOPES.join(' '),
-      callback: (resp) => {
-        if (resp?.error) {
-          reject(new Error(resp.error_description || resp.error));
-          return;
-        }
-        if (!resp?.access_token) {
-          reject(new Error('Google no devolvió el token de acceso para Drive.'));
-          return;
-        }
-        resolve(resp.access_token);
-      },
-      error_callback: (err) => {
-        const type = err?.type || 'popup_error';
-        if (type === 'popup_closed') {
-          reject(Object.assign(new Error('popup_closed'), { code: 'auth/popup-closed-by-user' }));
-        } else if (type === 'popup_failed_to_open') {
-          reject(Object.assign(new Error('popup_failed_to_open'), { code: 'auth/popup-blocked' }));
-        } else {
-          reject(new Error(err?.message || `No se pudo abrir la ventana de Google (${type}).`));
-        }
-      },
-    });
-
-    client.requestAccessToken({ prompt: 'select_account' });
-  });
-}
-
-export const signInGoogleForDrive = async (): Promise<{
-  user: User | null;
+export const signInGoogleForDrive = async (options?: {
+  allowRedirectFallback?: boolean;
+}): Promise<{
+  user: User;
   accessToken: string;
   email: string | null;
 }> => {
-  const oAuthClientId = (firebaseConfig as { oAuthClientId?: string }).oAuthClientId;
-  const oauth2 = getGisOAuth2();
+  const allowRedirectFallback = options?.allowRedirectFallback ?? true;
 
   try {
     isDriveSigningIn = true;
 
-    // 1. Prefer Google Identity Services with provisioned oAuthClientId synchronously on user click
-    if (oAuthClientId && oauth2) {
-      const accessToken = await requestTokenWithGis(oAuthClientId);
-      cachedDriveAccessToken = accessToken;
-
-      const [driveEmail] = await Promise.all([
-        fetchDriveAccountEmail(accessToken),
-        !auth.currentUser
-          ? signInWithCredential(
-              auth,
-              GoogleAuthProvider.credential(null, accessToken)
-            ).catch(() => null)
-          : Promise.resolve(null),
-      ]);
-
-      const resolvedEmail = driveEmail || auth.currentUser?.email || null;
-      cachedDriveEmail = resolvedEmail;
-      return {
-        user: auth.currentUser,
-        accessToken,
-        email: resolvedEmail,
-      };
-    }
-
-    // 2. Fallback to Firebase Auth signInWithPopup
+    let result;
     try {
-      const result = await signInWithPopup(auth, googleProvider);
-      const credential = GoogleAuthProvider.credentialFromResult(result);
-      if (!credential?.accessToken) {
-        throw new Error('No se recibió el token de acceso de Google Drive.');
-      }
-      cachedDriveAccessToken = credential.accessToken;
-      cachedDriveEmail = result.user.email || null;
-      return {
-        user: result.user,
-        accessToken: cachedDriveAccessToken,
-        email: cachedDriveEmail,
-      };
+      result = await signInWithPopup(auth, googleProvider);
     } catch (popupErr: unknown) {
       const code = String((popupErr as { code?: string })?.code || '');
-      const isStandalone = (() => {
-        try {
-          return window.self === window.top;
-        } catch {
-          return false;
+
+      // If user is currently logged in with email/password and same email collides, link Google
+      if (code === 'auth/account-exists-with-different-credential' && auth.currentUser) {
+        result = await linkWithPopup(auth.currentUser, googleProvider);
+      } else {
+        const isStandalone = (() => {
+          try {
+            return window.self === window.top;
+          } catch {
+            return false;
+          }
+        })();
+
+        if (
+          allowRedirectFallback &&
+          isStandalone &&
+          (code === 'auth/popup-blocked' ||
+            code === 'auth/operation-not-supported-in-this-environment')
+        ) {
+          try {
+            sessionStorage.setItem(DRIVE_REDIRECT_UI_FLAG, '1');
+          } catch {
+            // Ignore storage errors
+          }
+          await signInWithRedirect(auth, googleProvider);
+          throw Object.assign(new Error('Redirigiendo a Google...'), {
+            code: 'auth/redirect-started',
+          });
         }
-      })();
-      if (
-        isStandalone &&
-        (code === 'auth/popup-blocked' ||
-          code === 'auth/operation-not-supported-in-this-environment')
-      ) {
-        await signInWithRedirect(auth, googleProvider);
+
+        throw popupErr;
       }
-      throw popupErr;
     }
+
+    const credential = GoogleAuthProvider.credentialFromResult(result);
+    if (!credential?.accessToken) {
+      throw new Error(
+        'Google no devolvió el permiso de acceso para Google Drive. Vuelve a intentarlo aceptando los permisos.'
+      );
+    }
+
+    cachedDriveAccessToken = credential.accessToken;
+    cachedDriveEmail = result.user.email || null;
+    return {
+      user: result.user,
+      accessToken: cachedDriveAccessToken,
+      email: cachedDriveEmail,
+    };
   } finally {
     isDriveSigningIn = false;
   }
