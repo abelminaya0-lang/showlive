@@ -484,6 +484,15 @@ function sanitizeBanksForCloud(banks: SamplerBank[]): SamplerBank[] {
       if (p.customAudioName) {
         pad.customAudioName = String(p.customAudioName).slice(0, 140);
       }
+      if (p.loopMode && p.loopMode !== 'inherit') {
+        pad.loopMode = p.loopMode;
+      }
+      if (typeof p.loopBpm === 'number' && Number.isFinite(p.loopBpm)) {
+        pad.loopBpm = Math.max(40, Math.min(220, Math.round(p.loopBpm)));
+      }
+      if (p.loopFullFile) {
+        pad.loopFullFile = true;
+      }
       return pad;
     }),
   }));

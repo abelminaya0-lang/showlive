@@ -1,11 +1,14 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import {
   Edit2,
   Maximize2,
   Minimize2,
   Music2,
   Plus,
+  Repeat,
+  Square,
   Trash2,
+  Volume2,
 } from 'lucide-react';
 import { audioEngine } from '../audio/audioEngine';
 import { SamplerBank, SamplerPad, TriggerMode } from '../types/showlive';
@@ -19,6 +22,8 @@ interface SamplerPanelProps {
   onDeleteBank: () => void;
   triggerMode: TriggerMode;
   onChangeTriggerMode: (mode: TriggerMode) => void;
+  fallbackBpm?: number;
+  isDucking?: boolean;
   isCollapsed: boolean;
   onToggleCollapse: () => void;
   isFullPadsView: boolean;
@@ -36,6 +41,8 @@ export const SamplerPanel: React.FC<SamplerPanelProps> = ({
   onDeleteBank,
   triggerMode,
   onChangeTriggerMode,
+  fallbackBpm = 100,
+  isDucking = false,
   isCollapsed,
   onToggleCollapse,
   isFullPadsView,
@@ -44,8 +51,24 @@ export const SamplerPanel: React.FC<SamplerPanelProps> = ({
   onDropAudioOnPad,
 }) => {
   const [activePadIds, setActivePadIds] = useState<Set<number>>(new Set());
+  const [loopingPadIds, setLoopingPadIds] = useState<Set<number>>(new Set());
   const [editMode, setEditMode] = useState(false);
+  const [autoDuck, setAutoDuck] = useState(() => audioEngine.getAutoDuckEnabled());
   const activeBank = banks.find((b) => b.id === activeBankId) || banks[0];
+
+  const triggerModeRef = useRef(triggerMode);
+  triggerModeRef.current = triggerMode;
+  const fallbackBpmRef = useRef(fallbackBpm);
+  fallbackBpmRef.current = fallbackBpm;
+  const editModeRef = useRef(editMode);
+  editModeRef.current = editMode;
+
+  useEffect(() => {
+    return audioEngine.subscribePadState((activeIds, loopingIds) => {
+      setActivePadIds(new Set(activeIds));
+      setLoopingPadIds(new Set(loopingIds));
+    });
+  }, []);
 
   // Preload buffers for active bank
   useEffect(() => {
@@ -58,33 +81,20 @@ export const SamplerPanel: React.FC<SamplerPanelProps> = ({
   }, [activeBank]);
 
   const handleTrigger = (pad: SamplerPad) => {
-    if (editMode || (!pad.fxPreset && !pad.customAudioUrl)) {
+    if (editModeRef.current || (!pad.fxPreset && !pad.customAudioUrl)) {
       onEditPad(pad);
       return;
     }
     audioEngine.resume();
-    audioEngine.triggerPad(pad, triggerMode);
-    setActivePadIds((prev) => new Set(prev).add(pad.id));
-
-    if (triggerMode !== 'gate') {
-      setTimeout(() => {
-        setActivePadIds((prev) => {
-          const next = new Set(prev);
-          next.delete(pad.id);
-          return next;
-        });
-      }, 220);
-    }
+    audioEngine.triggerPad(pad, triggerModeRef.current, fallbackBpmRef.current);
   };
 
   const handleRelease = (pad: SamplerPad) => {
-    if (triggerMode === 'gate') {
+    const isGate =
+      (!pad.loopMode || pad.loopMode === 'inherit') &&
+      triggerModeRef.current === 'gate';
+    if (isGate) {
       audioEngine.releasePad(pad.id);
-      setActivePadIds((prev) => {
-        const next = new Set(prev);
-        next.delete(pad.id);
-        return next;
-      });
     }
   };
 
@@ -113,7 +123,7 @@ export const SamplerPanel: React.FC<SamplerPanelProps> = ({
     };
 
     const onKeyUp = (e: KeyboardEvent) => {
-      if (triggerMode !== 'gate') return;
+      if (triggerModeRef.current !== 'gate') return;
       const pad = shortcutMap.get(e.key.toUpperCase());
       if (pad) {
         handleRelease(pad);
@@ -126,7 +136,7 @@ export const SamplerPanel: React.FC<SamplerPanelProps> = ({
       window.removeEventListener('keydown', onKeyDown);
       window.removeEventListener('keyup', onKeyUp);
     };
-  }, [activeBank, triggerMode]);
+  }, [activeBank]);
 
   if (isCollapsed && !isFullPadsView) {
     return (
@@ -161,6 +171,13 @@ export const SamplerPanel: React.FC<SamplerPanelProps> = ({
         {pads.map((pad) => {
           const isEmpty = !pad.fxPreset && !pad.customAudioUrl;
           const isActive = activePadIds.has(pad.id);
+          const isLooping = loopingPadIds.has(pad.id);
+          const padLoopTag =
+            pad.loopMode === 'loop-4'
+              ? '4T'
+              : pad.loopMode === 'loop-8'
+              ? '8T'
+              : null;
           const isBrightBg =
             pad.color === '#FACC15' ||
             pad.color === '#EAB308' ||
@@ -189,7 +206,9 @@ export const SamplerPanel: React.FC<SamplerPanelProps> = ({
               className={`relative rounded-md border transition-all flex flex-col items-center justify-center p-1 select-none cursor-pointer overflow-hidden ${
                 isFullPadsView ? 'min-h-[76px]' : 'h-14 lg:h-[52px]'
               } ${
-                isActive
+                isLooping
+                  ? 'ring-2 ring-[#22D3EE] border-white shadow-[0_0_18px_rgba(34,211,238,0.75)] animate-pulse'
+                  : isActive
                   ? 'scale-95 ring-2 ring-[#FACC15] border-[#FACC15] shadow-[0_0_16px_rgba(250,204,21,0.55)]'
                   : isEmpty
                   ? 'border-white/10 hover:border-[#22D3EE]/50 text-slate-500'
@@ -197,10 +216,25 @@ export const SamplerPanel: React.FC<SamplerPanelProps> = ({
               }`}
               title={
                 isEmpty
-                  ? `Pad ${pad.id} (Vacío — Clic o Clic Derecho para asignar)`
-                  : `${pad.label} (Atajo: ${pad.shortcut} | Clic Derecho = Opciones)`
+                  ? `Pad ${pad.id} (Vacío — Clic para subir base o cuña)`
+                  : isLooping
+                  ? `${pad.label} (Loop activo — Toca de nuevo para detener)`
+                  : `${pad.label} (Atajo: ${pad.shortcut} | Clic Derecho = Opciones / Loop)`
               }
             >
+              {padLoopTag && !isEmpty && (
+                <span
+                  className={`absolute top-0.5 right-0.5 px-1 py-[1px] rounded text-[7.5px] font-extrabold leading-none flex items-center gap-0.5 ${
+                    isLooping
+                      ? 'bg-[#22D3EE] text-[#090A0E]'
+                      : 'bg-black/55 text-[#FACC15]'
+                  }`}
+                >
+                  <Repeat className="w-2 h-2" />
+                  {padLoopTag}
+                </span>
+              )}
+
               {isEmpty ? (
                 <span className="text-[10px] font-medium text-slate-500">Empty</span>
               ) : (
@@ -219,7 +253,7 @@ export const SamplerPanel: React.FC<SamplerPanelProps> = ({
                         : 'bg-black/35 text-white/90'
                     }`}
                   >
-                    {pad.id}
+                    {isLooping ? 'LOOP' : pad.id}
                   </span>
                 </>
               )}
@@ -262,9 +296,44 @@ export const SamplerPanel: React.FC<SamplerPanelProps> = ({
               <span className="font-display text-xs font-extrabold tracking-wider uppercase text-[#FACC15]">
                 Sampler
               </span>
+              {isDucking && (
+                <span className="px-1.5 py-0.5 rounded bg-[#EC287B]/25 border border-[#EC287B] text-[9px] font-extrabold text-[#EC287B]">
+                  CUÑA ACTIVA
+                </span>
+              )}
             </div>
 
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-1.5 flex-wrap">
+              <button
+                type="button"
+                onClick={() => {
+                  const next = !autoDuck;
+                  setAutoDuck(next);
+                  audioEngine.setAutoDuckEnabled(next);
+                }}
+                className={`inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-bold border cursor-pointer transition-colors ${
+                  autoDuck
+                    ? 'bg-[#22D3EE]/15 border-[#22D3EE]/70 text-[#22D3EE]'
+                    : 'bg-[#0A0B0F] border-white/15 text-slate-400'
+                }`}
+                title="Al reproducir una cuña, baja automáticamente la música del Deck A o B"
+              >
+                <Volume2 className="w-3 h-3" />
+                <span>{autoDuck ? 'Bajar Deck: ON' : 'Bajar Deck: OFF'}</span>
+              </button>
+
+              {activePadIds.size > 0 && (
+                <button
+                  type="button"
+                  onClick={() => audioEngine.stopAllPads()}
+                  className="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-red-600/25 hover:bg-red-600/40 border border-red-500/70 text-[10px] font-extrabold text-red-200 cursor-pointer"
+                  title="Detener todos los loops y cuñas del Sampler"
+                >
+                  <Square className="w-2.5 h-2.5 fill-current" />
+                  <span>Stop</span>
+                </button>
+              )}
+
               <button
                 type="button"
                 onClick={() => setEditMode((v) => !v)}
@@ -273,13 +342,10 @@ export const SamplerPanel: React.FC<SamplerPanelProps> = ({
                     ? 'bg-[#EC287B] border-[#EC287B] text-white shadow-[0_0_10px_rgba(236,40,123,0.45)]'
                     : 'bg-[#0A0B0F] border-white/15 hover:border-[#FACC15]/60 text-slate-200 hover:text-white'
                 }`}
-                title="Activa para tocar cualquier Pad y editarlo"
+                title="Activa para tocar cualquier Pad, subir base o configurar Loop 4T/8T"
               >
                 {editMode ? 'Editando Pads' : 'Editar Pad'}
               </button>
-              <span className="hidden sm:inline text-[10px] font-mono-tabular text-[#22D3EE]/80">
-                1-4, Q-R, A-F, Z-V
-              </span>
             </div>
           </div>
 
@@ -324,24 +390,30 @@ export const SamplerPanel: React.FC<SamplerPanelProps> = ({
               </button>
             </div>
 
-            <div className="flex items-center gap-1.5">
+            <div className="flex items-center gap-1.5 flex-wrap">
               <div className="flex items-center bg-[#0A0B0F] border border-white/15 rounded p-0.5">
-                {(['one-shot', 'poly', 'gate'] as TriggerMode[]).map((mode) => (
+                {(
+                  [
+                    { id: 'one-shot', label: '1-Shot' },
+                    { id: 'poly', label: 'Poly' },
+                    { id: 'gate', label: 'Gate' },
+                    { id: 'loop-4', label: 'Loop 4T' },
+                    { id: 'loop-8', label: 'Loop 8T' },
+                  ] as { id: TriggerMode; label: string }[]
+                ).map((mode) => (
                   <button
-                    key={mode}
+                    key={mode.id}
                     type="button"
-                    onClick={() => onChangeTriggerMode(mode)}
-                    className={`px-2 py-0.5 rounded text-[10px] font-extrabold capitalize transition-all cursor-pointer border ${
-                      triggerMode === mode
-                        ? 'bg-[#22D3EE] border-[#22D3EE] text-[#090A0E] shadow-[0_0_10px_rgba(34,211,238,0.4)]'
+                    onClick={() => onChangeTriggerMode(mode.id)}
+                    className={`px-1.5 sm:px-2 py-0.5 rounded text-[9.5px] sm:text-[10px] font-extrabold transition-all cursor-pointer border whitespace-nowrap ${
+                      triggerMode === mode.id
+                        ? mode.id.startsWith('loop')
+                          ? 'bg-[#FACC15] border-[#FACC15] text-[#090A0E] shadow-[0_0_10px_rgba(250,204,21,0.45)]'
+                          : 'bg-[#22D3EE] border-[#22D3EE] text-[#090A0E] shadow-[0_0_10px_rgba(34,211,238,0.4)]'
                         : 'border-transparent text-slate-400 hover:text-white'
                     }`}
                   >
-                    {mode === 'one-shot'
-                      ? 'One-Shot'
-                      : mode === 'poly'
-                      ? 'Poly'
-                      : 'Gate'}
+                    {mode.label}
                   </button>
                 ))}
               </div>

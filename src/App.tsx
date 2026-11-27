@@ -131,6 +131,7 @@ export default function App() {
   );
   const [triggerMode, setTriggerMode] = useState<TriggerMode>('one-shot');
   const [samplerCollapsed, setSamplerCollapsed] = useState(false);
+  const [isSamplerDucking, setIsSamplerDucking] = useState(false);
 
   // YouTube Search State
   const [ytResults, setYtResults] = useState<YouTubeSearchResult[]>([]);
@@ -195,6 +196,8 @@ export default function App() {
     const t = setTimeout(() => setToastMsg(null), 2600);
     return () => clearTimeout(t);
   }, [toastMsg]);
+
+  useEffect(() => audioEngine.subscribeDuckState(setIsSamplerDucking), []);
 
   // Listen to Firebase Auth & ID token changes (handles email verification reloads cleanly)
   useEffect(() => {
@@ -1602,10 +1605,17 @@ export default function App() {
     );
   }
 
-  // Compute effective channel gain for YouTube volume sync
+  // Compute effective channel gain for YouTube volume sync (ducks during sampler cuñas)
   const normXf = (mixer.crossfader + 1) * 0.5;
-  const effVolA = mixer.A.volume * Math.cos(normXf * 0.5 * Math.PI);
-  const effVolB = mixer.B.volume * Math.cos((1 - normXf) * 0.5 * Math.PI);
+  const duckFactor = isSamplerDucking ? 0.28 : 1;
+  const effVolA = mixer.A.volume * Math.cos(normXf * 0.5 * Math.PI) * duckFactor;
+  const effVolB = mixer.B.volume * Math.cos((1 - normXf) * 0.5 * Math.PI) * duckFactor;
+  const activeDeckBpm =
+    (deckA.isPlaying ? deckA.track?.bpm : undefined) ||
+    (deckB.isPlaying ? deckB.track?.bpm : undefined) ||
+    deckA.track?.bpm ||
+    deckB.track?.bpm ||
+    100;
 
   const lyricsModalTrack = tracks.find((t) => t.id === lyricsModalTrackId) || null;
 
@@ -1985,6 +1995,8 @@ export default function App() {
               onDeleteBank={handleDeleteSamplerBank}
               triggerMode={triggerMode}
               onChangeTriggerMode={setTriggerMode}
+              fallbackBpm={activeDeckBpm}
+              isDucking={isSamplerDucking}
               isCollapsed={
                 workspaceMode === 'pads' || mobileTab === 'sampler' ? false : samplerCollapsed
               }
@@ -2151,6 +2163,7 @@ export default function App() {
       {editingPad && (
         <PadEditorModal
           pad={editingPad}
+          activeDeckBpm={activeDeckBpm}
           onSave={handleSavePad}
           onClose={() => setEditingPad(null)}
         />

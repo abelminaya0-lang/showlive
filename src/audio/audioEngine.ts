@@ -165,6 +165,7 @@ interface DeckGraph {
 class ShowLiveAudioEngine {
   private ctx: AudioContext | null = null;
   private masterLimiter: DynamicsCompressorNode | null = null;
+  private deckMasterDuckGain: GainNode | null = null;
   private masterAnalyser: AnalyserNode | null = null;
   private masterFreqData: Uint8Array<ArrayBuffer> = new Uint8Array(new ArrayBuffer(256));
   private silentMasterBins: Uint8Array<ArrayBuffer> = new Uint8Array(new ArrayBuffer(256));
@@ -173,6 +174,12 @@ class ShowLiveAudioEngine {
   private fxBufferCache = new Map<string, AudioBuffer>();
   private urlBufferCache = new Map<string, AudioBuffer>();
   private activePadSources = new Map<number, AudioBufferSourceNode[]>();
+  private activeLoopPadIds = new Set<number>();
+  private activeDuckingSources = new Set<AudioBufferSourceNode>();
+  private autoDuckEnabled = true;
+  private isDuckingActive = false;
+  private duckListeners = new Set<(ducking: boolean) => void>();
+  private padListeners = new Set<(activeIds: number[], loopingIds: number[]) => void>();
 
   private ensureContext(): AudioContext {
     if (!this.ctx) {
@@ -185,6 +192,10 @@ class ShowLiveAudioEngine {
       this.masterLimiter.ratio.value = 8;
       this.masterLimiter.attack.value = 0.003;
       this.masterLimiter.release.value = 0.15;
+
+      this.deckMasterDuckGain = this.ctx.createGain();
+      this.deckMasterDuckGain.gain.value = 1.0;
+      this.deckMasterDuckGain.connect(this.masterLimiter);
 
       this.masterAnalyser = this.ctx.createAnalyser();
       this.masterAnalyser.fftSize = 512;
@@ -370,7 +381,7 @@ class ShowLiveAudioEngine {
     comboFilter.connect(channelGain);
     channelGain.connect(crossfadeGain);
     crossfadeGain.connect(analyser);
-    analyser.connect(this.masterLimiter!);
+    analyser.connect(this.deckMasterDuckGain || this.masterLimiter!);
 
     const graph: DeckGraph = {
       mediaEl: null,
@@ -563,7 +574,99 @@ class ShowLiveAudioEngine {
     };
   }
 
-  // --- ZERO-LATENCY SAMPLER ENGINE ---
+  // --- AUTO-DUCKING & LOOPING SAMPLER ENGINE ---
+  public setAutoDuckEnabled(enabled: boolean) {
+    this.autoDuckEnabled = enabled;
+    this.updateDuckState();
+  }
+
+  public getAutoDuckEnabled(): boolean {
+    return this.autoDuckEnabled;
+  }
+
+  public subscribeDuckState(cb: (ducking: boolean) => void): () => void {
+    this.duckListeners.add(cb);
+    cb(this.isDuckingActive);
+    return () => {
+      this.duckListeners.delete(cb);
+    };
+  }
+
+  public subscribePadState(
+    cb: (activeIds: number[], loopingIds: number[]) => void
+  ): () => void {
+    this.padListeners.add(cb);
+    cb(this.getActivePadIds(), Array.from(this.activeLoopPadIds));
+    return () => {
+      this.padListeners.delete(cb);
+    };
+  }
+
+  private getActivePadIds(): number[] {
+    const ids: number[] = [];
+    this.activePadSources.forEach((list, padId) => {
+      if (list.length > 0) ids.push(padId);
+    });
+    return ids;
+  }
+
+  private emitPadState() {
+    const activeIds = this.getActivePadIds();
+    const loopingIds = Array.from(this.activeLoopPadIds);
+    this.padListeners.forEach((cb) => cb(activeIds, loopingIds));
+  }
+
+  private updateDuckState() {
+    const shouldDuck = this.autoDuckEnabled && this.activeDuckingSources.size > 0;
+    if (this.ctx && this.deckMasterDuckGain) {
+      const now = this.ctx.currentTime;
+      if (shouldDuck) {
+        this.deckMasterDuckGain.gain.setTargetAtTime(0.28, now, 0.035);
+      } else {
+        this.deckMasterDuckGain.gain.setTargetAtTime(1.0, now, 0.22);
+      }
+    }
+    if (shouldDuck !== this.isDuckingActive) {
+      this.isDuckingActive = shouldDuck;
+      this.duckListeners.forEach((cb) => cb(shouldDuck));
+    }
+  }
+
+  private createBeatLoopBuffer(
+    ctx: AudioContext,
+    srcBuffer: AudioBuffer,
+    beats: 4 | 8,
+    bpm: number
+  ): AudioBuffer {
+    const safeBpm = Math.max(40, Math.min(220, bpm || 100));
+    const targetSec = (beats * 60) / safeBpm;
+    const targetSamples = Math.max(256, Math.round(targetSec * ctx.sampleRate));
+    const out = ctx.createBuffer(
+      srcBuffer.numberOfChannels,
+      targetSamples,
+      ctx.sampleRate
+    );
+    const fadeSamples = Math.min(
+      Math.round(0.006 * ctx.sampleRate),
+      Math.floor(targetSamples / 8)
+    );
+
+    for (let ch = 0; ch < srcBuffer.numberOfChannels; ch++) {
+      const srcData = srcBuffer.getChannelData(ch);
+      const outData = out.getChannelData(ch);
+      const copyLen = Math.min(srcData.length, targetSamples);
+      for (let i = 0; i < copyLen; i++) {
+        let sample = srcData[i];
+        // Smooth 6ms tail fade if source was trimmed to beat boundary to prevent clicks
+        if (srcData.length > targetSamples && i >= copyLen - fadeSamples) {
+          sample *= (copyLen - i) / fadeSamples;
+        }
+        outData[i] = sample;
+      }
+    }
+    return out;
+  }
+
   public async preloadPad(pad: SamplerPad) {
     const ctx = this.ensureContext();
     if (pad.customAudioUrl && !this.urlBufferCache.has(pad.customAudioUrl)) {
@@ -580,9 +683,30 @@ class ShowLiveAudioEngine {
     }
   }
 
-  public async triggerPad(pad: SamplerPad, mode: TriggerMode): Promise<void> {
-    if (!pad.customAudioUrl && !pad.fxPreset) return;
+  public async triggerPad(
+    pad: SamplerPad,
+    mode: TriggerMode,
+    fallbackBpm = 100
+  ): Promise<boolean> {
+    if (!pad.customAudioUrl && !pad.fxPreset) return false;
     const ctx = this.ensureContext();
+
+    const effectiveMode: TriggerMode =
+      pad.loopMode === 'loop-4'
+        ? 'loop-4'
+        : pad.loopMode === 'loop-8'
+        ? 'loop-8'
+        : pad.loopMode === 'oneshot'
+        ? 'one-shot'
+        : mode;
+
+    const isLoop = effectiveMode === 'loop-4' || effectiveMode === 'loop-8';
+
+    // Pressing an already-looping pad toggles it OFF cleanly
+    if (isLoop && (this.activePadSources.get(pad.id)?.length || 0) > 0) {
+      this.releasePad(pad.id);
+      return false;
+    }
 
     let buffer: AudioBuffer | undefined;
     if (pad.customAudioUrl) {
@@ -599,14 +723,34 @@ class ShowLiveAudioEngine {
       }
     }
 
-    if (!buffer || !this.samplerGain) return;
+    if (!buffer || !this.samplerGain) return false;
 
-    if (mode === 'one-shot' || mode === 'gate') {
+    if (effectiveMode === 'one-shot' || effectiveMode === 'gate' || isLoop) {
       this.releasePad(pad.id);
     }
 
     const src = ctx.createBufferSource();
-    src.buffer = buffer;
+    if (isLoop) {
+      if (pad.loopFullFile) {
+        src.buffer = buffer;
+        src.loop = true;
+        src.loopStart = 0;
+        src.loopEnd = buffer.duration;
+      } else {
+        const beats: 4 | 8 = effectiveMode === 'loop-4' ? 4 : 8;
+        const loopBpm = pad.loopBpm || fallbackBpm || 100;
+        const loopBuf = this.createBeatLoopBuffer(ctx, buffer, beats, loopBpm);
+        src.buffer = loopBuf;
+        src.loop = true;
+        src.loopStart = 0;
+        src.loopEnd = loopBuf.duration;
+      }
+      this.activeLoopPadIds.add(pad.id);
+    } else {
+      src.buffer = buffer;
+      this.activeDuckingSources.add(src);
+      this.updateDuckState();
+    }
 
     const padGain = ctx.createGain();
     padGain.gain.value = pad.volume ?? 0.9;
@@ -617,22 +761,33 @@ class ShowLiveAudioEngine {
     const list = this.activePadSources.get(pad.id) || [];
     list.push(src);
     this.activePadSources.set(pad.id, list);
+    this.emitPadState();
 
     src.onended = () => {
       const current = this.activePadSources.get(pad.id) || [];
-      this.activePadSources.set(
-        pad.id,
-        current.filter((item) => item !== src)
-      );
+      const remaining = current.filter((item) => item !== src);
+      this.activePadSources.set(pad.id, remaining);
+      if (remaining.length === 0) {
+        this.activeLoopPadIds.delete(pad.id);
+      }
+      if (this.activeDuckingSources.delete(src)) {
+        this.updateDuckState();
+      }
+      this.emitPadState();
     };
 
     src.start(0);
+    return true;
   }
 
   public releasePad(padId: number) {
     const active = this.activePadSources.get(padId);
-    if (!active || active.length === 0) return;
+    if (!active || active.length === 0) {
+      this.activeLoopPadIds.delete(padId);
+      return;
+    }
     active.forEach((src) => {
+      this.activeDuckingSources.delete(src);
       try {
         src.stop();
       } catch {
@@ -640,12 +795,19 @@ class ShowLiveAudioEngine {
       }
     });
     this.activePadSources.set(padId, []);
+    this.activeLoopPadIds.delete(padId);
+    this.updateDuckState();
+    this.emitPadState();
   }
 
   public stopAllPads() {
     for (const padId of this.activePadSources.keys()) {
       this.releasePad(padId);
     }
+    this.activeDuckingSources.clear();
+    this.activeLoopPadIds.clear();
+    this.updateDuckState();
+    this.emitPadState();
   }
 }
 

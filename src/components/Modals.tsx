@@ -19,6 +19,7 @@ import {
   IAModelConfig,
   LyricLine,
   PadFxPreset,
+  PadLoopMode,
   SamplerPad,
   StemMode,
   TrackItem,
@@ -552,6 +553,7 @@ export const AiModelModal: React.FC<AiModelModalProps> = ({
 /* -------------------- 4. SAMPLER PAD OPTIONS MODAL -------------------- */
 interface PadEditorModalProps {
   pad: SamplerPad;
+  activeDeckBpm?: number;
   onSave: (updated: SamplerPad, uploadedFile?: File) => void;
   onClose: () => void;
 }
@@ -570,6 +572,7 @@ const PAD_COLORS = [
 
 export const PadEditorModal: React.FC<PadEditorModalProps> = ({
   pad,
+  activeDeckBpm = 100,
   onSave,
   onClose,
 }) => {
@@ -594,8 +597,8 @@ export const PadEditorModal: React.FC<PadEditorModalProps> = ({
   };
 
   return (
-    <div className="fixed inset-0 z-50 bg-black/75 backdrop-blur-sm flex items-center justify-center p-4">
-      <div className="w-full max-w-md rounded-xl bg-[#0D1018] border border-white/15 shadow-2xl overflow-hidden">
+    <div className="fixed inset-0 z-50 bg-black/75 backdrop-blur-sm flex items-center justify-center p-3 sm:p-4">
+      <div className="w-full max-w-md max-h-[90vh] flex flex-col rounded-xl bg-[#0D1018] border border-white/15 shadow-2xl overflow-hidden">
         <div className="flex items-center justify-between px-5 py-3.5 border-b border-white/10 bg-[#0A0C12]">
           <div className="flex items-center gap-2">
             <Mic className="w-4 h-4 text-[#F4256A]" />
@@ -612,7 +615,7 @@ export const PadEditorModal: React.FC<PadEditorModalProps> = ({
           </button>
         </div>
 
-        <div className="p-5 space-y-4">
+        <div className="p-4 sm:p-5 space-y-4 overflow-y-auto">
           <div>
             <label className="block text-xs font-bold text-slate-300 mb-1">
               Nombre del Botón
@@ -648,7 +651,7 @@ export const PadEditorModal: React.FC<PadEditorModalProps> = ({
 
           <div className="space-y-2">
             <label className="block text-xs font-bold text-slate-300">
-              Sonido / Efecto
+              Sonido / Base / Cuña
             </label>
             <div className="grid grid-cols-1 gap-2">
               <select
@@ -692,16 +695,99 @@ export const PadEditorModal: React.FC<PadEditorModalProps> = ({
               <button
                 type="button"
                 onClick={() => fileRef.current?.click()}
-                className="w-full flex items-center justify-center gap-2 py-2 rounded-lg bg-[#161B28] hover:bg-[#1F2638] border border-white/10 text-xs font-semibold text-cyan-300 cursor-pointer"
+                className="w-full flex items-center justify-center gap-2 py-2.5 rounded-lg bg-[#161B28] hover:bg-[#1F2638] border border-cyan-500/35 text-xs font-semibold text-cyan-300 cursor-pointer"
               >
                 <Upload className="w-3.5 h-3.5" />
-                <span>
+                <span className="truncate px-2">
                   {draft.customAudioName
                     ? `Archivo: ${draft.customAudioName}`
-                    : 'Cargar Audio Local (.mp3 / .wav)'}
+                    : 'Subir Base o Cuña (.mp3 / .wav)'}
                 </span>
               </button>
             </div>
+          </div>
+
+          {/* Loop / Cuña Behavior */}
+          <div className="space-y-2.5 p-3 rounded-lg bg-[#121622] border border-white/10">
+            <label className="block text-xs font-bold text-[#FACC15]">
+              Modo del Pad (Cuña o Loop de Base)
+            </label>
+            <div className="grid grid-cols-2 gap-1.5">
+              {(
+                [
+                  { id: 'inherit', label: 'Modo del Sampler' },
+                  { id: 'oneshot', label: 'Cuña (Baja Deck)' },
+                  { id: 'loop-4', label: 'Loop 4 Tiempos' },
+                  { id: 'loop-8', label: 'Loop 8 Tiempos' },
+                ] as { id: PadLoopMode; label: string }[]
+              ).map((opt) => {
+                const active = (draft.loopMode || 'inherit') === opt.id;
+                return (
+                  <button
+                    key={opt.id}
+                    type="button"
+                    onClick={() =>
+                      setDraft({
+                        ...draft,
+                        loopMode: opt.id,
+                        loopBpm: draft.loopBpm || activeDeckBpm || 100,
+                      })
+                    }
+                    className={`py-1.5 px-2 rounded border text-[11px] font-bold cursor-pointer transition-colors ${
+                      active
+                        ? opt.id.startsWith('loop')
+                          ? 'bg-[#FACC15] border-[#FACC15] text-[#090A0E]'
+                          : 'bg-[#22D3EE]/20 border-[#22D3EE] text-[#22D3EE]'
+                        : 'bg-[#0A0B0F] border-white/10 text-slate-300 hover:border-white/25'
+                    }`}
+                  >
+                    {opt.label}
+                  </button>
+                );
+              })}
+            </div>
+
+            {(draft.loopMode === 'loop-4' || draft.loopMode === 'loop-8') && (
+              <div className="space-y-2 pt-1.5 border-t border-white/10">
+                <div className="flex items-center justify-between gap-2">
+                  <span className="text-[11px] font-semibold text-slate-300">
+                    BPM del Loop ({draft.loopBpm || activeDeckBpm || 100} BPM)
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() =>
+                      setDraft({ ...draft, loopBpm: activeDeckBpm || 100 })
+                    }
+                    className="px-2 py-0.5 rounded bg-[#0A0B0F] border border-cyan-500/40 text-[10px] font-bold text-cyan-300 cursor-pointer"
+                  >
+                    Usar BPM Deck ({activeDeckBpm || 100})
+                  </button>
+                </div>
+                <input
+                  type="range"
+                  min={60}
+                  max={180}
+                  step={1}
+                  disabled={Boolean(draft.loopFullFile)}
+                  value={draft.loopBpm || activeDeckBpm || 100}
+                  onChange={(e) =>
+                    setDraft({ ...draft, loopBpm: Number(e.target.value) })
+                  }
+                  className="w-full accent-[#FACC15] disabled:opacity-40"
+                />
+                <label className="flex items-center justify-between gap-2 text-[11px] text-slate-300 cursor-pointer">
+                  <span>Repetir archivo completo (si tu base ya está cortada)</span>
+                  <input
+                    type="checkbox"
+                    checked={Boolean(draft.loopFullFile)}
+                    onChange={(e) =>
+                      setDraft({ ...draft, loopFullFile: e.target.checked })
+                    }
+                    className="accent-[#FACC15] w-4 h-4"
+                  />
+                </label>
+              </div>
+            )}
           </div>
 
           <div>
@@ -730,7 +816,7 @@ export const PadEditorModal: React.FC<PadEditorModalProps> = ({
                 type="button"
                 onClick={() => {
                   audioEngine.resume();
-                  audioEngine.triggerPad(draft, 'one-shot');
+                  audioEngine.triggerPad(draft, 'one-shot', activeDeckBpm);
                 }}
                 className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-emerald-600/20 hover:bg-emerald-600/35 border border-emerald-500/40 text-emerald-300 text-xs font-bold cursor-pointer"
               >
