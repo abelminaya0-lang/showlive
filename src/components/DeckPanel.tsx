@@ -28,6 +28,7 @@ interface DeckPanelProps {
   deck: DeckState;
   channelVolume: number; // effective gain 0..1.2 * crossfader
   onTogglePlay: () => void;
+  onSetPlaying?: (playing: boolean) => void;
   onCue: () => void;
   onSeek: (timeSec: number) => void;
   onTimeUpdate: (timeSec: number, durationSec: number) => void;
@@ -55,6 +56,7 @@ export const DeckPanel: React.FC<DeckPanelProps> = ({
   deck,
   channelVolume,
   onTogglePlay,
+  onSetPlaying,
   onCue,
   onSeek,
   onTimeUpdate,
@@ -80,10 +82,13 @@ export const DeckPanel: React.FC<DeckPanelProps> = ({
   const [resolvedUrl, setResolvedUrl] = useState<string | null>(null);
   const [showKeyPicker, setShowKeyPicker] = useState(false);
   const [introLoopActive, setIntroLoopActive] = useState(false);
+  const introLoopActiveRef = useRef(introLoopActive);
+  introLoopActiveRef.current = introLoopActive;
   const [introLoopWindow, setIntroLoopWindow] = useState<{
     startSec: number;
     endSec: number;
     bpm: number;
+    totalDuration: number;
   } | null>(null);
 
   const transposed = getTransposedKey(deck.track?.musicalKey, deck.pitchSemitones);
@@ -114,6 +119,16 @@ export const DeckPanel: React.FC<DeckPanelProps> = ({
     if (deck.source === 'local') {
       const el = mediaRef.current;
       if (!el || !resolvedUrl) return;
+      if (introLoopActiveRef.current) {
+        el.pause();
+        if (!deck.isPlaying) {
+          audioEngine.stopDeckIntroLoop(deck.id);
+          introLoopActiveRef.current = false;
+          setIntroLoopActive(false);
+          setIntroLoopWindow(null);
+        }
+        return;
+      }
       if (deck.isPlaying) {
         audioEngine.resume();
         el.play().catch(() => {});
@@ -127,7 +142,7 @@ export const DeckPanel: React.FC<DeckPanelProps> = ({
         '*'
       );
     }
-  }, [deck.isPlaying, deck.source, resolvedUrl]);
+  }, [deck.isPlaying, deck.source, resolvedUrl, deck.id]);
 
   // Sync YouTube volume with mixer fader + crossfader
   useEffect(() => {
@@ -143,7 +158,7 @@ export const DeckPanel: React.FC<DeckPanelProps> = ({
   // Sync seek changes when user scrubs progress bar or hits CUE
   useEffect(() => {
     const el = mediaRef.current;
-    if (!el || deck.source !== 'local') return;
+    if (!el || deck.source !== 'local' || introLoopActiveRef.current) return;
     if (Math.abs(el.currentTime - deck.currentTime) > 0.6) {
       el.currentTime = deck.currentTime;
     }
@@ -158,52 +173,74 @@ export const DeckPanel: React.FC<DeckPanelProps> = ({
     audioEngine.setDeckStemMode(deck.id, deck.stemMode);
   }, [deck.id, deck.stemMode]);
 
-  // Reset in-deck intro loop whenever track changes
+  // Pre-analyze intro start & BPM and clean up active Web Audio loop when track changes
   useEffect(() => {
+    audioEngine.stopDeckIntroLoop(deck.id);
+    introLoopActiveRef.current = false;
     setIntroLoopActive(false);
     setIntroLoopWindow(null);
-  }, [deck.track?.id, resolvedUrl]);
+    if (resolvedUrl && deck.source === 'local') {
+      audioEngine.analyzeAudioUrl(resolvedUrl);
+    }
+    return () => {
+      audioEngine.stopDeckIntroLoop(deck.id);
+    };
+  }, [deck.id, deck.track?.id, resolvedUrl, deck.source]);
 
-  // High-precision loop wrap for automatic intro tail ("primera cola")
+  // Visual progress playhead while sample-accurate Web Audio Auto Loop is active
   useEffect(() => {
     if (!introLoopActive || !introLoopWindow || deck.source !== 'local') return;
     const id = window.setInterval(() => {
-      const el = mediaRef.current;
-      if (!el || el.paused) return;
-      if (el.currentTime >= introLoopWindow.endSec) {
-        const overshoot = el.currentTime - introLoopWindow.endSec;
-        const loopDur = Math.max(0.2, introLoopWindow.endSec - introLoopWindow.startSec);
-        el.currentTime = introLoopWindow.startSec + (overshoot % loopDur);
+      const pos = audioEngine.getDeckIntroLoopPosition(deck.id);
+      if (pos !== null) {
+        onTimeUpdate(pos, introLoopWindow.totalDuration);
       }
-    }, 15);
+    }, 50);
     return () => window.clearInterval(id);
-  }, [introLoopActive, introLoopWindow, deck.source]);
+  }, [introLoopActive, introLoopWindow, deck.id, deck.source]);
 
   const handleToggleIntroLoop = async () => {
     if (deck.source !== 'local' || !resolvedUrl) return;
-    if (introLoopActive) {
+    audioEngine.resume();
+
+    if (introLoopActiveRef.current) {
+      // Turn OFF Auto Loop: stop loop and continue the full song seamlessly from the beat
+      const resumeSec = audioEngine.stopDeckIntroLoop(deck.id);
+      introLoopActiveRef.current = false;
       setIntroLoopActive(false);
       setIntroLoopWindow(null);
+
+      const el = mediaRef.current;
+      const targetPos = resumeSec ?? introLoopWindow?.startSec ?? 0;
+      if (el) {
+        el.currentTime = targetPos;
+        onTimeUpdate(targetPos, el.duration || deck.track?.durationSec || 0);
+        el.play().catch(() => {});
+      }
+      if (onSetPlaying) onSetPlaying(true);
+      else if (!deck.isPlaying) onTogglePlay();
       return;
     }
-    const analysis = await audioEngine.analyzeAudioUrl(resolvedUrl);
-    const startSec = analysis?.introStartSec ?? 0;
-    const bpm = deck.track?.bpm || analysis?.detectedBpm || 100;
-    const beats = analysis?.autoBeats || 4;
-    const loopDur = (beats * 60) / Math.max(60, Math.min(200, bpm));
-    const endSec = startSec + loopDur;
 
-    setIntroLoopWindow({ startSec, endSec, bpm });
-    setIntroLoopActive(true);
-
+    // Turn ON Auto Loop: jump to intro start automatically & start 4-beat loop immediately
     const el = mediaRef.current;
     if (el) {
-      el.currentTime = startSec;
-      onSeek(startSec);
-      if (!deck.isPlaying) {
-        onTogglePlay();
-      }
+      el.pause();
     }
+    const info = await audioEngine.startDeckIntroLoop(
+      deck.id,
+      resolvedUrl,
+      deck.track?.bpm,
+      4
+    );
+    if (!info) return;
+
+    introLoopActiveRef.current = true;
+    setIntroLoopWindow(info);
+    setIntroLoopActive(true);
+    onTimeUpdate(info.startSec, info.totalDuration);
+    if (onSetPlaying) onSetPlaying(true);
+    else if (!deck.isPlaying) onTogglePlay();
   };
 
   // Real-time 60fps audio spectrum visualizer (runs rAF loop only while playing)
@@ -913,7 +950,18 @@ export const DeckPanel: React.FC<DeckPanelProps> = ({
             if (deck.source !== 'local' || !deck.duration) return;
             const rect = e.currentTarget.getBoundingClientRect();
             const ratio = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
-            onSeek(ratio * deck.duration);
+            const target = ratio * deck.duration;
+            if (introLoopActiveRef.current) {
+              audioEngine.stopDeckIntroLoop(deck.id);
+              introLoopActiveRef.current = false;
+              setIntroLoopActive(false);
+              setIntroLoopWindow(null);
+              if (mediaRef.current) {
+                mediaRef.current.currentTime = target;
+                if (deck.isPlaying) mediaRef.current.play().catch(() => {});
+              }
+            }
+            onSeek(target);
           }}
         >
           <div

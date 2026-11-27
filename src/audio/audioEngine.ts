@@ -179,6 +179,17 @@ class ShowLiveAudioEngine {
   >();
   private activePadSources = new Map<number, AudioBufferSourceNode[]>();
   private activeLoopPadIds = new Set<number>();
+  private deckLoops: Record<
+    DeckId,
+    {
+      source: AudioBufferSourceNode;
+      startSec: number;
+      loopDurSec: number;
+      startedCtxTime: number;
+      bpm: number;
+      totalDuration: number;
+    } | null
+  > = { A: null, B: null };
   private activeDuckingSources = new Set<AudioBufferSourceNode>();
   private autoDuckEnabled = true;
   private isDuckingActive = false;
@@ -488,6 +499,104 @@ class ShowLiveAudioEngine {
     graphB.crossfadeGain.gain.setTargetAtTime(gainB, now, 0.02);
   }
 
+  public async startDeckIntroLoop(
+    deckId: DeckId,
+    url: string,
+    overrideBpm?: number,
+    beats: 4 | 8 = 4
+  ): Promise<{
+    startSec: number;
+    endSec: number;
+    bpm: number;
+    totalDuration: number;
+  } | null> {
+    if (!url) return null;
+    const ctx = this.ensureContext();
+    if (ctx.state === 'suspended') {
+      await ctx.resume().catch(() => {});
+    }
+    const graph = this.ensureDeckGraph(deckId);
+    this.stopDeckIntroLoop(deckId);
+
+    let buffer = this.urlBufferCache.get(url);
+    if (!buffer) {
+      try {
+        const res = await fetch(url);
+        const arr = await res.arrayBuffer();
+        buffer = await ctx.decodeAudioData(arr);
+        this.urlBufferCache.set(url, buffer);
+      } catch {
+        return null;
+      }
+    }
+
+    const analysis = this.analyzeBufferIntro(buffer);
+    const startSec = analysis.introStartSec;
+    const bpm =
+      overrideBpm && overrideBpm >= 50 && overrideBpm <= 200
+        ? Math.round(overrideBpm)
+        : analysis.detectedBpm;
+
+    const loopBuf = this.createBeatLoopBuffer(
+      ctx,
+      buffer,
+      beats,
+      bpm,
+      startSec
+    );
+
+    const src = ctx.createBufferSource();
+    src.buffer = loopBuf;
+    src.loop = true;
+    src.loopStart = 0;
+    src.loopEnd = loopBuf.duration;
+    src.connect(graph.pitchShifter.input);
+
+    const startedCtxTime = ctx.currentTime;
+    src.start(startedCtxTime);
+
+    this.deckLoops[deckId] = {
+      source: src,
+      startSec,
+      loopDurSec: loopBuf.duration,
+      startedCtxTime,
+      bpm,
+      totalDuration: buffer.duration,
+    };
+
+    return {
+      startSec,
+      endSec: startSec + loopBuf.duration,
+      bpm,
+      totalDuration: buffer.duration,
+    };
+  }
+
+  public getDeckIntroLoopPosition(deckId: DeckId): number | null {
+    const loop = this.deckLoops[deckId];
+    if (!loop || !this.ctx) return null;
+    const elapsed = Math.max(0, this.ctx.currentTime - loop.startedCtxTime);
+    return loop.startSec + (elapsed % Math.max(0.05, loop.loopDurSec));
+  }
+
+  public stopDeckIntroLoop(deckId: DeckId): number | null {
+    const loop = this.deckLoops[deckId];
+    if (!loop) return null;
+    const resumeSec = this.getDeckIntroLoopPosition(deckId) ?? loop.startSec;
+    this.deckLoops[deckId] = null;
+    try {
+      loop.source.stop();
+    } catch {
+      // Already stopped
+    }
+    try {
+      loop.source.disconnect();
+    } catch {
+      // Ignore disconnect errors
+    }
+    return resumeSec;
+  }
+
   public getDeckFrequencyData(deckId: DeckId): { bins: Uint8Array; level: number } {
     const graph = this.decks[deckId];
     if (!graph) {
@@ -747,7 +856,7 @@ class ShowLiveAudioEngine {
       for (let i = 0; i < limit; i++) {
         ac += flux[i] * flux[i + lag];
       }
-      // Also reinforce double-bar / half-tempo consistency
+      // Also reinforce 2-beat and 4-beat bar consistency so compás locks cleanly
       const lag2 = lag * 2;
       if (lag2 < numFrames) {
         let ac2 = 0;
@@ -755,7 +864,16 @@ class ShowLiveAudioEngine {
         for (let i = 0; i < lim2; i++) {
           ac2 += flux[i] * flux[i + lag2];
         }
-        ac += ac2 * 0.5;
+        ac += ac2 * 0.55;
+      }
+      const lag4 = lag * 4;
+      if (lag4 < numFrames) {
+        let ac4 = 0;
+        const lim4 = numFrames - lag4;
+        for (let i = 0; i < lim4; i++) {
+          ac4 += flux[i] * flux[i + lag4];
+        }
+        ac += ac4 * 0.4;
       }
 
       const bpm = (60 * hopRate) / lag;
@@ -994,7 +1112,8 @@ class ShowLiveAudioEngine {
           sample *= i / headFade;
         }
         if (i >= copyLen - tailFade) {
-          sample *= (copyLen - i) / tailFade;
+          const t = (i - (copyLen - tailFade)) / tailFade;
+          sample *= 0.5 * (1 + Math.cos(Math.PI * t));
         }
         outData[i] = sample;
       }
@@ -1077,7 +1196,7 @@ class ShowLiveAudioEngine {
           typeof pad.loopStartSec === 'number'
             ? pad.loopStartSec
             : analysis.introStartSec;
-        const beats: 4 | 8 = analysis.autoBeats;
+        const beats: 4 | 8 = 4;
         const loopBuf = this.createBeatLoopBuffer(
           ctx,
           buffer,

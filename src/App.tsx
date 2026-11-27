@@ -1864,6 +1864,9 @@ export default function App() {
               deck={deckA}
               channelVolume={effVolA}
               onTogglePlay={() => handleTogglePlay('A')}
+              onSetPlaying={(playing) =>
+                setDeck('A', (prev) => ({ ...prev, isPlaying: playing }))
+              }
               onCue={() => handleCue('A')}
               onSeek={(t) => handleSeek('A', t)}
               onTimeUpdate={(t, d) => handleTimeUpdate('A', t, d)}
@@ -1933,6 +1936,9 @@ export default function App() {
               deck={deckB}
               channelVolume={effVolB}
               onTogglePlay={() => handleTogglePlay('B')}
+              onSetPlaying={(playing) =>
+                setDeck('B', (prev) => ({ ...prev, isPlaying: playing }))
+              }
               onCue={() => handleCue('B')}
               onSeek={(t) => handleSeek('B', t)}
               onTimeUpdate={(t, d) => handleTimeUpdate('B', t, d)}
