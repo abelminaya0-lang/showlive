@@ -1,5 +1,6 @@
 import React, { Suspense, lazy, useCallback, useEffect, useRef, useState } from 'react';
 import {
+  GoogleAuthProvider,
   User,
   createUserWithEmailAndPassword,
   getRedirectResult,
@@ -20,7 +21,15 @@ import {
   getOrCreateDemoTrackUrl,
 } from './audio/demoTracks';
 import { LandingView } from './components/LandingView';
-import { auth, googleProvider } from './firebase';
+import {
+  auth,
+  clearDriveAccessToken,
+  getDriveAccessToken,
+  googleProvider,
+  initDriveAuth,
+  setDriveAccessToken,
+  signInGoogleForDrive,
+} from './firebase';
 import {
   checkUserIsAdmin,
   ensureAdminClientRecord,
@@ -31,6 +40,13 @@ import {
   subscribeClientAccess,
   subscribeMyAccessRequest,
 } from './services/firebaseService';
+import {
+  DriveAuthError,
+  clearDriveMediaCache,
+  downloadDriveMediaObjectUrl,
+  listDriveFolders,
+  listDriveMusicFiles,
+} from './services/googleDriveService';
 
 const loadDeckPanel = () => import('./components/DeckPanel');
 const loadMixerPanel = () => import('./components/MixerPanel');
@@ -72,6 +88,8 @@ import {
   DeckId,
   DeckSource,
   DeckState,
+  DriveFolder,
+  DriveMusicFile,
   IAModelConfig,
   LibraryTab,
   LyricLine,
@@ -138,6 +156,20 @@ export default function App() {
   const [ytResults, setYtResults] = useState<YouTubeSearchResult[]>([]);
   const [ytLoading, setYtLoading] = useState(false);
   const [ytError, setYtError] = useState<string | null>(null);
+
+  // Google Drive Music State
+  const [driveFiles, setDriveFiles] = useState<DriveMusicFile[]>([]);
+  const [driveFolders, setDriveFolders] = useState<DriveFolder[]>([]);
+  const [driveSelectedFolderId, setDriveSelectedFolderId] = useState<string | null>(null);
+  const [driveQuery, setDriveQuery] = useState('');
+  const [driveLoading, setDriveLoading] = useState(false);
+  const [driveLoadingMore, setDriveLoadingMore] = useState(false);
+  const [driveNextPageToken, setDriveNextPageToken] = useState<string | null>(null);
+  const [driveLoadingFileId, setDriveLoadingFileId] = useState<string | null>(null);
+  const [driveError, setDriveError] = useState<string | null>(null);
+  const [needsDriveAuth, setNeedsDriveAuth] = useState(() => !getDriveAccessToken());
+  const [driveConnecting, setDriveConnecting] = useState(false);
+  const [driveAccountEmail, setDriveAccountEmail] = useState<string | null>(null);
 
   // AI & Modals State
   const [aiConfig, setAiConfig] = useState<IAModelConfig>({
@@ -308,19 +340,46 @@ export default function App() {
     };
   }, []);
 
+  // Keep in-memory Google Drive auth status synced with Firebase Auth state
+  useEffect(() => {
+    return initDriveAuth(
+      (fbUser) => {
+        setNeedsDriveAuth(false);
+        setDriveAccountEmail(fbUser.email || null);
+      },
+      () => {
+        setNeedsDriveAuth(true);
+        setDriveFiles([]);
+        setDriveFolders([]);
+        setDriveNextPageToken(null);
+      }
+    );
+  }, []);
+
   // Resolve any Google redirect result (fallback when popup was blocked on standalone browser)
   useEffect(() => {
-    getRedirectResult(auth).catch((err: any) => {
-      const code = String(err?.code || '');
-      if (code && code !== 'auth/null-user') {
-        setAuthError(
-          code === 'auth/unauthorized-domain'
-            ? `El dominio "${window.location.hostname}" no está autorizado en Firebase. Agrégalo en Firebase Console (proyecto tactile-cosine-j2t1j) → Authentication → Settings → Authorized domains.`
-            : `No se pudo completar el acceso con Google (${code}).`
-        );
-        setShowLoginScreen(true);
-      }
-    });
+    getRedirectResult(auth)
+      .then((result) => {
+        if (result) {
+          const cred = GoogleAuthProvider.credentialFromResult(result);
+          if (cred?.accessToken) {
+            setDriveAccessToken(cred.accessToken);
+            setNeedsDriveAuth(false);
+            setDriveAccountEmail(result.user.email || null);
+          }
+        }
+      })
+      .catch((err: any) => {
+        const code = String(err?.code || '');
+        if (code && code !== 'auth/null-user') {
+          setAuthError(
+            code === 'auth/unauthorized-domain'
+              ? `El dominio "${window.location.hostname}" no está autorizado en Firebase. Agrégalo en Firebase Console (proyecto tactile-cosine-j2t1j) → Authentication → Settings → Authorized domains.`
+              : `No se pudo completar el acceso con Google (${code}).`
+          );
+          setShowLoginScreen(true);
+        }
+      });
   }, []);
 
   // Auto-open full ShowLive Studio as soon as user signs in
@@ -460,7 +519,13 @@ export default function App() {
     setAuthError(null);
     setAuthNotice(null);
     try {
-      await signInWithPopup(auth, googleProvider);
+      const result = await signInWithPopup(auth, googleProvider);
+      const credential = GoogleAuthProvider.credentialFromResult(result);
+      if (credential?.accessToken) {
+        setDriveAccessToken(credential.accessToken);
+        setNeedsDriveAuth(false);
+        setDriveAccountEmail(result.user.email || null);
+      }
       setShowLoginScreen(false);
     } catch (err: any) {
       const code = String(err?.code || '');
@@ -632,6 +697,13 @@ export default function App() {
     setDeckA((p) => ({ ...p, isPlaying: false }));
     setDeckB((p) => ({ ...p, isPlaying: false }));
     audioEngine.stopAllPads();
+    clearDriveAccessToken();
+    clearDriveMediaCache();
+    setNeedsDriveAuth(true);
+    setDriveFiles([]);
+    setDriveFolders([]);
+    setDriveNextPageToken(null);
+    setDriveAccountEmail(null);
     setShowAdminDashboard(false);
     setShowLoginScreen(false);
     setAuthError(null);
@@ -1397,6 +1469,159 @@ export default function App() {
     showToast(`YouTube listo en Deck ${deckId}: ${video.title} (pulsa Play)`);
   };
 
+  // Google Drive Music Library Handlers
+  const loadDriveLibrary = useCallback(
+    async (
+      tokenOverride?: string,
+      query = '',
+      folderId: string | null = null,
+      refreshFolders = false
+    ) => {
+      const token = tokenOverride || getDriveAccessToken();
+      if (!token) {
+        setNeedsDriveAuth(true);
+        return;
+      }
+
+      setDriveLoading(true);
+      setDriveError(null);
+      setDriveQuery(query);
+
+      try {
+        const shouldFetchFolders = refreshFolders || driveFolders.length === 0;
+        const [musicRes, foldersRes] = await Promise.all([
+          listDriveMusicFiles(token, { query, folderId }),
+          shouldFetchFolders ? listDriveFolders(token) : Promise.resolve(null),
+        ]);
+        setDriveFiles(musicRes.files);
+        setDriveNextPageToken(musicRes.nextPageToken);
+        if (foldersRes) {
+          setDriveFolders(foldersRes);
+        }
+        setNeedsDriveAuth(false);
+      } catch (err: any) {
+        if (err instanceof DriveAuthError) {
+          clearDriveAccessToken();
+          setNeedsDriveAuth(true);
+          setDriveError(err.message);
+        } else {
+          setDriveError(err?.message || 'No se pudo cargar tu música de Google Drive.');
+        }
+      } finally {
+        setDriveLoading(false);
+      }
+    },
+    [driveFolders.length]
+  );
+
+  const handleConnectDrive = async () => {
+    if (driveConnecting) return;
+    setDriveConnecting(true);
+    setDriveError(null);
+    try {
+      const { user, accessToken } = await signInGoogleForDrive();
+      setDriveAccountEmail(user.email || null);
+      setNeedsDriveAuth(false);
+      setDriveSelectedFolderId(null);
+      await loadDriveLibrary(accessToken, '', null, true);
+      showToast(`Google Drive conectado (${user.email || 'Google'})`);
+    } catch (err: any) {
+      const code = String(err?.code || '');
+      if (code === 'auth/popup-closed-by-user') {
+        setDriveError('Cerraste la ventana de Google antes de conectar tu Drive.');
+      } else if (code === 'auth/popup-blocked') {
+        setDriveError('Tu navegador bloqueó la ventana de Google. Permite los popups e inténtalo de nuevo.');
+      } else {
+        setDriveError(err?.message || 'No se pudo conectar con Google Drive.');
+      }
+    } finally {
+      setDriveConnecting(false);
+    }
+  };
+
+  const handleSearchDrive = (query: string, folderId?: string | null) => {
+    const resolvedFolder = folderId !== undefined ? folderId : driveSelectedFolderId;
+    loadDriveLibrary(undefined, query, resolvedFolder, false);
+  };
+
+  const handleLoadMoreDrive = async () => {
+    const token = getDriveAccessToken();
+    if (!token || !driveNextPageToken || driveLoadingMore) return;
+    setDriveLoadingMore(true);
+    setDriveError(null);
+    try {
+      const res = await listDriveMusicFiles(token, {
+        query: driveQuery,
+        folderId: driveSelectedFolderId,
+        pageToken: driveNextPageToken,
+      });
+      setDriveFiles((prev) => [...prev, ...res.files]);
+      setDriveNextPageToken(res.nextPageToken);
+    } catch (err: any) {
+      if (err instanceof DriveAuthError) {
+        clearDriveAccessToken();
+        setNeedsDriveAuth(true);
+        setDriveError(err.message);
+      } else {
+        setDriveError(err?.message || 'No se pudieron cargar más canciones.');
+      }
+    } finally {
+      setDriveLoadingMore(false);
+    }
+  };
+
+  const handleLoadDriveFileToDeck = async (file: DriveMusicFile, deckId: DeckId) => {
+    const token = getDriveAccessToken();
+    if (!token) {
+      setNeedsDriveAuth(true);
+      showToast('Inicia sesión con Google para abrir esta canción de Drive');
+      return;
+    }
+
+    audioEngine.resume();
+    setDriveLoadingFileId(file.id);
+    setDriveError(null);
+    showToast(`Cargando desde Drive: ${file.name}...`);
+
+    try {
+      const { objectUrl, durationSec, isVideo } = await downloadDriveMediaObjectUrl(token, file);
+      const track: TrackItem = {
+        id: `drive-${file.id}`,
+        name: file.name,
+        durationSec,
+        sourceType: 'file',
+        audioUrl: isVideo ? undefined : objectUrl,
+        videoUrl: isVideo ? objectUrl : undefined,
+        isVideo,
+        playlistIds: [],
+        hasAiLyrics: false,
+      };
+      deckConsumedRef.current[deckId] = false;
+      setDeck(deckId, (prev) => ({
+        ...prev,
+        source: 'local',
+        track,
+        isPlaying: false,
+        currentTime: 0,
+        duration: durationSec,
+        cuePoint: 0,
+        showLyricsOverlay: false,
+      }));
+      setMobileActiveDeck(deckId);
+      showToast(`Listo en Deck ${deckId}: ${file.name} (pulsa Play)`);
+    } catch (err: any) {
+      if (err instanceof DriveAuthError) {
+        clearDriveAccessToken();
+        setNeedsDriveAuth(true);
+        setDriveError(err.message);
+      } else {
+        showToast(`Error al abrir ${file.name} desde Google Drive`);
+      }
+    } finally {
+      setDriveLoadingFileId(null);
+    }
+  };
+
   // AI Lyrics save
   const handleSaveLyrics = (
     trackId: string,
@@ -2000,6 +2225,14 @@ export default function App() {
                 if (tab === 'youtube' && ytResults.length === 0) {
                   handleSearchYoutube('Salsa Karaoke');
                 }
+                if (tab === 'drive') {
+                  const token = getDriveAccessToken();
+                  if (!token) {
+                    setNeedsDriveAuth(true);
+                  } else if (driveFiles.length === 0 && !driveLoading) {
+                    loadDriveLibrary(token, driveQuery, driveSelectedFolderId, true);
+                  }
+                }
               }}
               playlists={playlists}
               selectedPlaylistId={selectedPlaylistId}
@@ -2059,6 +2292,22 @@ export default function App() {
               ytError={ytError}
               onSearchYoutube={handleSearchYoutube}
               onLoadYoutubeToDeck={handleLoadYoutubeToDeck}
+              driveFiles={driveFiles}
+              driveFolders={driveFolders}
+              driveSelectedFolderId={driveSelectedFolderId}
+              driveLoading={driveLoading}
+              driveLoadingMore={driveLoadingMore}
+              driveNextPageToken={driveNextPageToken}
+              driveLoadingFileId={driveLoadingFileId}
+              driveError={driveError}
+              needsDriveAuth={needsDriveAuth}
+              driveConnecting={driveConnecting}
+              driveAccountEmail={driveAccountEmail || authUser?.email || null}
+              onConnectDrive={handleConnectDrive}
+              onSearchDrive={handleSearchDrive}
+              onLoadMoreDrive={handleLoadMoreDrive}
+              onSelectDriveFolder={setDriveSelectedFolderId}
+              onLoadDriveFileToDeck={handleLoadDriveFileToDeck}
             />
           </div>
 

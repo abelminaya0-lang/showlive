@@ -4,7 +4,23 @@ export type StemMode = 'full' | 'instrumental' | 'vocals' | 'drums_bass';
 export type TriggerMode = 'one-shot' | 'poly' | 'gate' | 'loop';
 export type PadLoopMode = 'inherit' | 'oneshot' | 'loop';
 export type WorkspaceMode = 'mixer' | 'pads';
-export type LibraryTab = 'local' | 'youtube';
+export type LibraryTab = 'local' | 'youtube' | 'drive';
+
+export interface DriveMusicFile {
+  id: string;
+  name: string;
+  mimeType: string;
+  size?: string;
+  modifiedTime?: string;
+  parents?: string[];
+  fileExtension?: string;
+}
+
+export interface DriveFolder {
+  id: string;
+  name: string;
+  parents?: string[];
+}
 
 export interface LyricLine {
   timeSec: number;
