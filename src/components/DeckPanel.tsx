@@ -9,13 +9,14 @@ import {
   Music,
   Pause,
   Play,
+  Repeat,
   Sparkles,
   Trash2,
   Youtube,
 } from 'lucide-react';
 import { audioEngine } from '../audio/audioEngine';
 import { getOrCreateDemoTrackUrl } from '../audio/demoTracks';
-import { DeckSource, DeckState, StemMode } from '../types/showlive';
+import { DeckId, DeckSource, DeckState, StemMode } from '../types/showlive';
 import {
   CHROMATIC_NOTES,
   formatKeyIntl,
@@ -40,6 +41,7 @@ interface DeckPanelProps {
   onChangeStemMode: (mode: StemMode) => void;
   onSelectYoutubeTab: () => void;
   onUnloadTrack?: () => void;
+  onCaptureIntroToPad?: (deckId: DeckId, beats: 4 | 8) => void;
 }
 
 function formatTime(sec: number): string {
@@ -66,6 +68,7 @@ export const DeckPanel: React.FC<DeckPanelProps> = ({
   onChangeStemMode,
   onSelectYoutubeTab,
   onUnloadTrack,
+  onCaptureIntroToPad,
 }) => {
   const mediaRef = useRef<HTMLVideoElement | null>(null);
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
@@ -76,6 +79,12 @@ export const DeckPanel: React.FC<DeckPanelProps> = ({
   channelVolumeRef.current = channelVolume;
   const [resolvedUrl, setResolvedUrl] = useState<string | null>(null);
   const [showKeyPicker, setShowKeyPicker] = useState(false);
+  const [introLoopBeats, setIntroLoopBeats] = useState<4 | 8 | null>(null);
+  const [introLoopWindow, setIntroLoopWindow] = useState<{
+    startSec: number;
+    endSec: number;
+    bpm: number;
+  } | null>(null);
 
   const transposed = getTransposedKey(deck.track?.musicalKey, deck.pitchSemitones);
 
@@ -148,6 +157,53 @@ export const DeckPanel: React.FC<DeckPanelProps> = ({
   useEffect(() => {
     audioEngine.setDeckStemMode(deck.id, deck.stemMode);
   }, [deck.id, deck.stemMode]);
+
+  // Reset in-deck intro loop whenever track changes
+  useEffect(() => {
+    setIntroLoopBeats(null);
+    setIntroLoopWindow(null);
+  }, [deck.track?.id, resolvedUrl]);
+
+  // High-precision loop wrap for first intro tail ("primera cola")
+  useEffect(() => {
+    if (!introLoopBeats || !introLoopWindow || deck.source !== 'local') return;
+    const id = window.setInterval(() => {
+      const el = mediaRef.current;
+      if (!el || el.paused) return;
+      if (el.currentTime >= introLoopWindow.endSec) {
+        const overshoot = el.currentTime - introLoopWindow.endSec;
+        const loopDur = Math.max(0.2, introLoopWindow.endSec - introLoopWindow.startSec);
+        el.currentTime = introLoopWindow.startSec + (overshoot % loopDur);
+      }
+    }, 15);
+    return () => window.clearInterval(id);
+  }, [introLoopBeats, introLoopWindow, deck.source]);
+
+  const handleToggleIntroLoop = async (beats: 4 | 8) => {
+    if (deck.source !== 'local' || !resolvedUrl) return;
+    if (introLoopBeats === beats) {
+      setIntroLoopBeats(null);
+      setIntroLoopWindow(null);
+      return;
+    }
+    const analysis = await audioEngine.analyzeAudioUrl(resolvedUrl);
+    const startSec = analysis?.introStartSec ?? 0;
+    const bpm = deck.track?.bpm || analysis?.detectedBpm || 100;
+    const loopDur = (beats * 60) / Math.max(60, Math.min(200, bpm));
+    const endSec = startSec + loopDur;
+
+    setIntroLoopWindow({ startSec, endSec, bpm });
+    setIntroLoopBeats(beats);
+
+    const el = mediaRef.current;
+    if (el) {
+      el.currentTime = startSec;
+      onSeek(startSec);
+      if (!deck.isPlaying) {
+        onTogglePlay();
+      }
+    }
+  };
 
   // Real-time 60fps audio spectrum visualizer (runs rAF loop only while playing)
   useEffect(() => {
@@ -527,25 +583,68 @@ export const DeckPanel: React.FC<DeckPanelProps> = ({
           </div>
 
           <div className="flex items-center gap-1.5 shrink-0">
-            {/* 1-Tap Vocal Removal (Pista Sin Voz) for Local Tracks */}
+            {/* 1-Tap Vocal Removal (Pista Sin Voz) + Intro Cola Loop for Local Tracks */}
             {deck.source === 'local' && (
-              <button
-                type="button"
-                onClick={handleToggleVocalRemoval}
-                className={`inline-flex items-center gap-1 px-2.5 py-0.5 rounded text-[11px] font-extrabold border transition-all cursor-pointer whitespace-nowrap ${
-                  isVocalRemoved
-                    ? 'bg-[#FACC15] border-[#FACC15] text-[#090A0E] shadow-[0_0_12px_rgba(250,204,21,0.55)]'
-                    : 'bg-[#0A0B0F] hover:bg-[#191D29] text-[#FACC15] border-[#FACC15]/50'
-                }`}
-                title={
-                  isVocalRemoved
-                    ? 'Pista Sin Voz activa (clic para restaurar voz original)'
-                    : 'Quitar voz en tiempo real para cantar sobre la pista'
-                }
-              >
-                <MicOff className="w-3 h-3" />
-                <span>{isVocalRemoved ? 'Pista Sin Voz' : 'Quitar Voz'}</span>
-              </button>
+              <>
+                {deck.track && resolvedUrl && (
+                  <div className="flex items-center bg-[#0A0B0F] border border-white/15 rounded overflow-hidden">
+                    <button
+                      type="button"
+                      onClick={() => handleToggleIntroLoop(4)}
+                      className={`px-1.5 py-0.5 text-[10px] font-extrabold transition-colors cursor-pointer whitespace-nowrap ${
+                        introLoopBeats === 4
+                          ? 'bg-[#22D3EE] text-[#090A0E]'
+                          : 'text-slate-300 hover:text-white'
+                      }`}
+                      title="Loopear la primera cola de inicio en 4 tiempos"
+                    >
+                      Cola 4T
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => handleToggleIntroLoop(8)}
+                      className={`px-1.5 py-0.5 text-[10px] font-extrabold border-l border-white/10 transition-colors cursor-pointer whitespace-nowrap ${
+                        introLoopBeats === 8
+                          ? 'bg-[#22D3EE] text-[#090A0E]'
+                          : 'text-slate-300 hover:text-white'
+                      }`}
+                      title="Loopear la primera cola de inicio en 8 tiempos"
+                    >
+                      8T
+                    </button>
+                    {onCaptureIntroToPad && (
+                      <button
+                        type="button"
+                        onClick={() =>
+                          onCaptureIntroToPad(deck.id, introLoopBeats || 4)
+                        }
+                        className="px-1.5 py-0.5 text-[10px] font-extrabold border-l border-white/10 text-[#FACC15] hover:bg-[#FACC15]/15 cursor-pointer whitespace-nowrap"
+                        title="Tomar primera cola de esta canción y mandarla al Sampler como base"
+                      >
+                        → Pad
+                      </button>
+                    )}
+                  </div>
+                )}
+
+                <button
+                  type="button"
+                  onClick={handleToggleVocalRemoval}
+                  className={`inline-flex items-center gap-1 px-2.5 py-0.5 rounded text-[11px] font-extrabold border transition-all cursor-pointer whitespace-nowrap ${
+                    isVocalRemoved
+                      ? 'bg-[#FACC15] border-[#FACC15] text-[#090A0E] shadow-[0_0_12px_rgba(250,204,21,0.55)]'
+                      : 'bg-[#0A0B0F] hover:bg-[#191D29] text-[#FACC15] border-[#FACC15]/50'
+                  }`}
+                  title={
+                    isVocalRemoved
+                      ? 'Pista Sin Voz activa (clic para restaurar voz original)'
+                      : 'Quitar voz en tiempo real para cantar sobre la pista'
+                  }
+                >
+                  <MicOff className="w-3 h-3" />
+                  <span>{isVocalRemoved ? 'Pista Sin Voz' : 'Quitar Voz'}</span>
+                </button>
+              </>
             )}
 
             {/* Other stem mode badge if vocals/drums_bass active */}
@@ -914,11 +1013,11 @@ export const DeckPanel: React.FC<DeckPanelProps> = ({
         </div>
 
         {/* Mobile Live Singer Quick Action Strip (>= 40px touch buttons) */}
-        <div className="grid grid-cols-3 gap-1.5">
+        <div className="grid grid-cols-4 gap-1.5">
           <button
             type="button"
             onClick={handleToggleVocalRemoval}
-            className={`min-h-[40px] px-2 rounded-lg border text-[11px] font-extrabold flex items-center justify-center gap-1.5 cursor-pointer transition-all ${
+            className={`min-h-[40px] px-1.5 rounded-lg border text-[10.5px] font-extrabold flex items-center justify-center gap-1 cursor-pointer transition-all ${
               isVocalRemoved
                 ? 'bg-[#FACC15] border-[#FACC15] text-[#090A0E] shadow-[0_0_12px_rgba(250,204,21,0.5)]'
                 : 'bg-[#0A0B0F] border-[#FACC15]/55 text-[#FACC15]'
@@ -932,6 +1031,35 @@ export const DeckPanel: React.FC<DeckPanelProps> = ({
           <button
             type="button"
             onClick={() => {
+              if (deck.source === 'local' && deck.track && resolvedUrl) {
+                if (introLoopBeats === null) handleToggleIntroLoop(4);
+                else if (introLoopBeats === 4) handleToggleIntroLoop(8);
+                else handleToggleIntroLoop(8);
+              }
+            }}
+            onContextMenu={(e) => {
+              e.preventDefault();
+              if (onCaptureIntroToPad && deck.source === 'local' && deck.track) {
+                onCaptureIntroToPad(deck.id, introLoopBeats || 4);
+              }
+            }}
+            disabled={deck.source !== 'local' || !deck.track}
+            className={`min-h-[40px] px-1.5 rounded-lg border text-[10.5px] font-extrabold flex items-center justify-center gap-1 cursor-pointer disabled:opacity-40 ${
+              introLoopBeats
+                ? 'bg-[#22D3EE] border-[#22D3EE] text-[#090A0E]'
+                : 'bg-[#0A0B0F] border-[#22D3EE]/50 text-[#22D3EE]'
+            }`}
+            title="Loop de la primera cola (4T → 8T → Off). Mantén o ve a Pads para mandarla al Sampler"
+          >
+            <Repeat className="w-3.5 h-3.5 shrink-0" />
+            <span className="truncate">
+              {introLoopBeats ? `Cola ${introLoopBeats}T` : 'Cola Loop'}
+            </span>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => {
               if (deck.track) {
                 if (deck.track.hasAiLyrics) onToggleLyricsOverlay();
                 else onRequestAiLyrics();
@@ -939,7 +1067,7 @@ export const DeckPanel: React.FC<DeckPanelProps> = ({
                 onSelectYoutubeTab();
               }
             }}
-            className={`min-h-[40px] px-2 rounded-lg border text-[11px] font-bold flex items-center justify-center gap-1.5 cursor-pointer ${
+            className={`min-h-[40px] px-1.5 rounded-lg border text-[10.5px] font-bold flex items-center justify-center gap-1 cursor-pointer ${
               deck.showLyricsOverlay && deck.track?.hasAiLyrics
                 ? 'bg-[#EC287B]/25 border-[#EC287B] text-white'
                 : 'bg-[#0A0B0F] border-white/20 text-slate-200'
@@ -949,23 +1077,23 @@ export const DeckPanel: React.FC<DeckPanelProps> = ({
             <span className="truncate">
               {deck.track?.hasAiLyrics
                 ? deck.showLyricsOverlay
-                  ? 'Letra ON'
+                  ? 'Letra'
                   : 'Letra OFF'
-                : 'Karaoke IA'}
+                : 'Karaoke'}
             </span>
           </button>
 
           <button
             type="button"
             onClick={() => setShowKeyPicker((v) => !v)}
-            className={`min-h-[40px] px-2 rounded-lg border text-[11px] font-bold flex items-center justify-center gap-1 cursor-pointer ${
+            className={`min-h-[40px] px-1.5 rounded-lg border text-[10.5px] font-bold flex items-center justify-center gap-1 cursor-pointer ${
               deck.pitchSemitones !== 0
                 ? 'bg-[#22D3EE]/15 border-[#22D3EE] text-[#22D3EE]'
                 : 'bg-[#0A0B0F] border-[#22D3EE]/45 text-slate-200'
             }`}
           >
             <span className="truncate">
-              Nota: {deck.pitchSemitones === 0 && !deck.track?.musicalKey ? 'Orig' : transposed.latin}
+              {deck.pitchSemitones === 0 && !deck.track?.musicalKey ? 'Tono' : transposed.latin}
             </span>
           </button>
         </div>

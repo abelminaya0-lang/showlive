@@ -1,6 +1,6 @@
 import { PadFxPreset, Playlist, SamplerBank, SamplerPad, TrackItem } from '../types/showlive';
 
-function encodeWav(samplesLeft: Float32Array, samplesRight: Float32Array, sampleRate: number): Blob {
+export function encodeWav(samplesLeft: Float32Array, samplesRight: Float32Array, sampleRate: number): Blob {
   const numFrames = samplesLeft.length;
   const buffer = new ArrayBuffer(44 + numFrames * 4);
   const view = new DataView(buffer);

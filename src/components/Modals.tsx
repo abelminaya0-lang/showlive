@@ -554,6 +554,15 @@ export const AiModelModal: React.FC<AiModelModalProps> = ({
 interface PadEditorModalProps {
   pad: SamplerPad;
   activeDeckBpm?: number;
+  hasDeckA?: boolean;
+  hasDeckB?: boolean;
+  onExtractDeckIntro?: (deckId: 'A' | 'B') => Promise<{
+    url: string;
+    file: File;
+    label: string;
+    introStartSec: number;
+    detectedBpm: number;
+  } | null>;
   onSave: (updated: SamplerPad, uploadedFile?: File) => void;
   onClose: () => void;
 }
@@ -570,20 +579,31 @@ const PAD_COLORS = [
   '#EC4899',
 ];
 
+const GENRE_BPM_PRESETS = [
+  { label: 'Reggaetón 92', bpm: 92 },
+  { label: 'Cumbia 96', bpm: 96 },
+  { label: 'Salsa 100', bpm: 100 },
+  { label: 'Timba 105', bpm: 105 },
+];
+
 export const PadEditorModal: React.FC<PadEditorModalProps> = ({
   pad,
   activeDeckBpm = 100,
+  hasDeckA = false,
+  hasDeckB = false,
+  onExtractDeckIntro,
   onSave,
   onClose,
 }) => {
   const fileRef = useRef<HTMLInputElement | null>(null);
   const [draft, setDraft] = useState<SamplerPad>({ ...pad });
   const [uploadedFile, setUploadedFile] = useState<File | undefined>(undefined);
+  const [analyzing, setAnalyzing] = useState(false);
 
-  const handleUploadAudio = (file: File) => {
+  const handleUploadAudio = async (file: File) => {
     const url = URL.createObjectURL(file);
     const cleanName = file.name.replace(/\.[^.]+$/, '').slice(0, 12);
-    const next: SamplerPad = {
+    const baseNext: SamplerPad = {
       ...draft,
       label: draft.label === 'Empty' ? cleanName : draft.label,
       color: draft.color === '#181C26' ? '#E11D48' : draft.color,
@@ -591,9 +611,71 @@ export const PadEditorModal: React.FC<PadEditorModalProps> = ({
       customAudioName: file.name,
       fxPreset: undefined,
     };
-    setDraft(next);
+    setDraft(baseNext);
     setUploadedFile(file);
-    audioEngine.preloadPad(next);
+    setAnalyzing(true);
+    try {
+      await audioEngine.preloadPad(baseNext);
+      const analysis = await audioEngine.analyzeAudioUrl(url);
+      if (analysis) {
+        setDraft((prev) => ({
+          ...prev,
+          loopStartSec: analysis.introStartSec,
+          loopBpm: prev.loopBpm || analysis.detectedBpm,
+        }));
+      }
+    } finally {
+      setAnalyzing(false);
+    }
+  };
+
+  const handleCaptureDeck = async (deckId: 'A' | 'B') => {
+    if (!onExtractDeckIntro) return;
+    setAnalyzing(true);
+    try {
+      const clip = await onExtractDeckIntro(deckId);
+      if (!clip) return;
+      const nextMode =
+        draft.loopMode === 'loop-8' ? 'loop-8' : 'loop-4';
+      const next: SamplerPad = {
+        ...draft,
+        label: draft.label === 'Empty' ? clip.label : draft.label,
+        color:
+          draft.color === '#181C26'
+            ? deckId === 'A'
+              ? '#2DD4BF'
+              : '#EC4899'
+            : draft.color,
+        customAudioUrl: clip.url,
+        customAudioName: clip.file.name,
+        fxPreset: undefined,
+        loopMode: nextMode,
+        loopBpm: clip.detectedBpm,
+        loopStartSec: clip.introStartSec,
+        loopFullFile: false,
+      };
+      setDraft(next);
+      setUploadedFile(clip.file);
+    } finally {
+      setAnalyzing(false);
+    }
+  };
+
+  const handleAutoDetectCurrent = async () => {
+    if (!draft.customAudioUrl) return;
+    setAnalyzing(true);
+    try {
+      const analysis = await audioEngine.analyzeAudioUrl(draft.customAudioUrl);
+      if (analysis) {
+        setDraft((prev) => ({
+          ...prev,
+          loopStartSec: analysis.introStartSec,
+          loopBpm: analysis.detectedBpm,
+        }));
+      }
+    } finally {
+      setAnalyzing(false);
+    }
   };
 
   return (
@@ -701,17 +783,46 @@ export const PadEditorModal: React.FC<PadEditorModalProps> = ({
                 <span className="truncate px-2">
                   {draft.customAudioName
                     ? `Archivo: ${draft.customAudioName}`
-                    : 'Subir Base o Cuña (.mp3 / .wav)'}
+                    : 'Subir Canción / Base / Cuña (.mp3 / .wav)'}
                 </span>
               </button>
+
+              {onExtractDeckIntro && (hasDeckA || hasDeckB) && (
+                <div className="grid grid-cols-2 gap-1.5">
+                  <button
+                    type="button"
+                    disabled={!hasDeckA || analyzing}
+                    onClick={() => handleCaptureDeck('A')}
+                    className="py-1.5 px-2 rounded-lg bg-[#121824] hover:bg-[#22D3EE]/15 border border-[#22D3EE]/45 text-[11px] font-bold text-[#22D3EE] disabled:opacity-40 cursor-pointer"
+                  >
+                    Tomar 1ª Cola Deck A
+                  </button>
+                  <button
+                    type="button"
+                    disabled={!hasDeckB || analyzing}
+                    onClick={() => handleCaptureDeck('B')}
+                    className="py-1.5 px-2 rounded-lg bg-[#121824] hover:bg-[#EC287B]/15 border border-[#EC287B]/45 text-[11px] font-bold text-[#EC287B] disabled:opacity-40 cursor-pointer"
+                  >
+                    Tomar 1ª Cola Deck B
+                  </button>
+                </div>
+              )}
             </div>
           </div>
 
           {/* Loop / Cuña Behavior */}
           <div className="space-y-2.5 p-3 rounded-lg bg-[#121622] border border-white/10">
-            <label className="block text-xs font-bold text-[#FACC15]">
-              Modo del Pad (Cuña o Loop de Base)
-            </label>
+            <div className="flex items-center justify-between gap-2">
+              <label className="block text-xs font-bold text-[#FACC15]">
+                Modo del Pad (Cuña o Loop 1ª Cola)
+              </label>
+              {analyzing && (
+                <span className="text-[10px] font-bold text-cyan-300 flex items-center gap-1">
+                  <Loader2 className="w-3 h-3 animate-spin" />
+                  Detectando cola...
+                </span>
+              )}
+            </div>
             <div className="grid grid-cols-2 gap-1.5">
               {(
                 [
@@ -748,21 +859,53 @@ export const PadEditorModal: React.FC<PadEditorModalProps> = ({
             </div>
 
             {(draft.loopMode === 'loop-4' || draft.loopMode === 'loop-8') && (
-              <div className="space-y-2 pt-1.5 border-t border-white/10">
+              <div className="space-y-2.5 pt-2 border-t border-white/10">
                 <div className="flex items-center justify-between gap-2">
                   <span className="text-[11px] font-semibold text-slate-300">
                     BPM del Loop ({draft.loopBpm || activeDeckBpm || 100} BPM)
                   </span>
-                  <button
-                    type="button"
-                    onClick={() =>
-                      setDraft({ ...draft, loopBpm: activeDeckBpm || 100 })
-                    }
-                    className="px-2 py-0.5 rounded bg-[#0A0B0F] border border-cyan-500/40 text-[10px] font-bold text-cyan-300 cursor-pointer"
-                  >
-                    Usar BPM Deck ({activeDeckBpm || 100})
-                  </button>
+                  <div className="flex items-center gap-1">
+                    {draft.customAudioUrl && (
+                      <button
+                        type="button"
+                        disabled={analyzing}
+                        onClick={handleAutoDetectCurrent}
+                        className="px-2 py-0.5 rounded bg-[#0A0B0F] border border-[#FACC15]/50 text-[10px] font-bold text-[#FACC15] cursor-pointer disabled:opacity-40"
+                      >
+                        Auto Cola+BPM
+                      </button>
+                    )}
+                    <button
+                      type="button"
+                      onClick={() =>
+                        setDraft({ ...draft, loopBpm: activeDeckBpm || 100 })
+                      }
+                      className="px-2 py-0.5 rounded bg-[#0A0B0F] border border-cyan-500/40 text-[10px] font-bold text-cyan-300 cursor-pointer"
+                    >
+                      BPM Deck ({activeDeckBpm || 100})
+                    </button>
+                  </div>
                 </div>
+
+                {/* Genre quick-BPM presets for Salsa / Cumbia / Reggaeton */}
+                <div className="grid grid-cols-4 gap-1">
+                  {GENRE_BPM_PRESETS.map((g) => (
+                    <button
+                      key={g.label}
+                      type="button"
+                      disabled={Boolean(draft.loopFullFile)}
+                      onClick={() => setDraft({ ...draft, loopBpm: g.bpm })}
+                      className={`py-1 px-1 rounded text-[9.5px] font-bold border cursor-pointer disabled:opacity-40 ${
+                        (draft.loopBpm || 100) === g.bpm
+                          ? 'bg-[#22D3EE]/20 border-[#22D3EE] text-[#22D3EE]'
+                          : 'bg-[#0A0B0F] border-white/10 text-slate-400 hover:text-white'
+                      }`}
+                    >
+                      {g.label}
+                    </button>
+                  ))}
+                </div>
+
                 <input
                   type="range"
                   min={60}
@@ -775,8 +918,42 @@ export const PadEditorModal: React.FC<PadEditorModalProps> = ({
                   }
                   className="w-full accent-[#FACC15] disabled:opacity-40"
                 />
+
+                {!draft.loopFullFile && (
+                  <div className="space-y-1">
+                    <div className="flex items-center justify-between text-[11px]">
+                      <span className="text-slate-300 font-semibold">
+                        Inicio 1ª Cola ({(draft.loopStartSec ?? 0).toFixed(2)}s)
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() =>
+                          setDraft({ ...draft, loopStartSec: undefined })
+                        }
+                        className="text-[10px] font-bold text-[#22D3EE] hover:underline cursor-pointer"
+                      >
+                        Auto-golpe
+                      </button>
+                    </div>
+                    <input
+                      type="range"
+                      min={0}
+                      max={15}
+                      step={0.02}
+                      value={draft.loopStartSec ?? 0}
+                      onChange={(e) =>
+                        setDraft({
+                          ...draft,
+                          loopStartSec: Number(e.target.value),
+                        })
+                      }
+                      className="w-full accent-[#22D3EE]"
+                    />
+                  </div>
+                )}
+
                 <label className="flex items-center justify-between gap-2 text-[11px] text-slate-300 cursor-pointer">
-                  <span>Repetir archivo completo (si tu base ya está cortada)</span>
+                  <span>Repetir archivo completo (sin recortar cola)</span>
                   <input
                     type="checkbox"
                     checked={Boolean(draft.loopFullFile)}

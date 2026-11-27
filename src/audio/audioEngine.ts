@@ -5,7 +5,7 @@ import {
   StemMode,
   TriggerMode,
 } from '../types/showlive';
-import { synthesizeFxBuffer } from './demoTracks';
+import { encodeWav, synthesizeFxBuffer } from './demoTracks';
 
 /**
  * Dual-delay-line Jungle pitch shifter using Web Audio API.
@@ -173,6 +173,10 @@ class ShowLiveAudioEngine {
   private decks: Record<DeckId, DeckGraph | null> = { A: null, B: null };
   private fxBufferCache = new Map<string, AudioBuffer>();
   private urlBufferCache = new Map<string, AudioBuffer>();
+  private bufferAnalysisCache = new WeakMap<
+    AudioBuffer,
+    { introStartSec: number; detectedBpm: number }
+  >();
   private activePadSources = new Map<number, AudioBufferSourceNode[]>();
   private activeLoopPadIds = new Set<number>();
   private activeDuckingSources = new Set<AudioBufferSourceNode>();
@@ -632,34 +636,301 @@ class ShowLiveAudioEngine {
     }
   }
 
+  private findZeroCrossing(
+    data: Float32Array,
+    targetIdx: number,
+    searchRadius: number
+  ): number {
+    const start = Math.max(1, targetIdx - searchRadius);
+    const end = Math.min(data.length - 1, targetIdx);
+    for (let i = end; i >= start; i--) {
+      if ((data[i - 1] <= 0 && data[i] >= 0) || (data[i - 1] >= 0 && data[i] <= 0)) {
+        return i;
+      }
+    }
+    return Math.max(0, Math.min(data.length - 1, targetIdx));
+  }
+
+  private detectIntroStartSample(buffer: AudioBuffer): number {
+    const sr = buffer.sampleRate;
+    const ch0 = buffer.getChannelData(0);
+    const ch1 = buffer.numberOfChannels > 1 ? buffer.getChannelData(1) : ch0;
+    const maxScan = Math.min(buffer.length, Math.round(sr * 25));
+    if (maxScan < 256) return 0;
+
+    // Step in 5ms frames to locate peak energy and skip leading silence / fade-in
+    const frameSize = Math.max(64, Math.round(sr * 0.005));
+    const frameCount = Math.floor(maxScan / frameSize);
+    if (frameCount === 0) return 0;
+
+    const frameRms = new Float32Array(frameCount);
+    let maxRms = 0;
+    for (let f = 0; f < frameCount; f++) {
+      const base = f * frameSize;
+      let sum = 0;
+      for (let i = 0; i < frameSize; i++) {
+        const s = 0.5 * (ch0[base + i] + ch1[base + i]);
+        sum += s * s;
+      }
+      const rms = Math.sqrt(sum / frameSize);
+      frameRms[f] = rms;
+      if (rms > maxRms) maxRms = rms;
+    }
+
+    if (maxRms < 0.005) return 0;
+
+    // Detect first real percussive / musical entry ("primera cola de inicio")
+    const threshold = Math.max(0.025, maxRms * 0.14);
+    let hitSample = 0;
+    for (let f = 0; f < frameCount; f++) {
+      if (frameRms[f] >= threshold) {
+        hitSample = f * frameSize;
+        break;
+      }
+    }
+
+    // Refine inside the hit frame to exact attack sample, then snap to zero-crossing
+    const refineEnd = Math.min(maxScan, hitSample + frameSize);
+    const sampleThresh = Math.max(0.018, maxRms * 0.12);
+    for (let i = Math.max(0, hitSample - Math.round(sr * 0.004)); i < refineEnd; i++) {
+      const amp = Math.max(Math.abs(ch0[i]), Math.abs(ch1[i]));
+      if (amp >= sampleThresh) {
+        hitSample = i;
+        break;
+      }
+    }
+
+    return this.findZeroCrossing(ch0, hitSample, Math.round(sr * 0.006));
+  }
+
+  private estimateBpmFromBuffer(buffer: AudioBuffer, startSample: number): number {
+    const sr = buffer.sampleRate;
+    const ch0 = buffer.getChannelData(0);
+    const ch1 = buffer.numberOfChannels > 1 ? buffer.getChannelData(1) : ch0;
+
+    // Analyze up to 28 seconds starting from intro downbeat at 100 Hz hop rate (10ms)
+    const hopSamples = Math.max(64, Math.round(sr * 0.01));
+    const analyzeSamples = Math.min(buffer.length - startSample, Math.round(sr * 28));
+    const numFrames = Math.floor(analyzeSamples / hopSamples);
+    if (numFrames < 150) return 100;
+
+    const env = new Float32Array(numFrames);
+    for (let f = 0; f < numFrames; f++) {
+      const base = startSample + f * hopSamples;
+      let sum = 0;
+      for (let i = 0; i < hopSamples; i++) {
+        const s = 0.5 * (ch0[base + i] + ch1[base + i]);
+        sum += s * s;
+      }
+      env[f] = Math.sqrt(sum / hopSamples);
+    }
+
+    // Positive onset flux highlights drum transients (clave, kick, conga, dembow)
+    const flux = new Float32Array(numFrames);
+    for (let f = 1; f < numFrames; f++) {
+      const diff = env[f] - env[f - 1];
+      flux[f] = diff > 0 ? diff : 0;
+    }
+
+    const hopRate = sr / hopSamples; // ~100 Hz
+    const minBpm = 74;
+    const maxBpm = 156;
+    const minLag = Math.floor((60 / maxBpm) * hopRate);
+    const maxLag = Math.ceil((60 / minBpm) * hopRate);
+
+    let bestBpm = 100;
+    let bestScore = -1;
+
+    for (let lag = minLag; lag <= maxLag; lag++) {
+      let ac = 0;
+      const limit = numFrames - lag;
+      for (let i = 0; i < limit; i++) {
+        ac += flux[i] * flux[i + lag];
+      }
+      // Also reinforce double-bar / half-tempo consistency
+      const lag2 = lag * 2;
+      if (lag2 < numFrames) {
+        let ac2 = 0;
+        const lim2 = numFrames - lag2;
+        for (let i = 0; i < lim2; i++) {
+          ac2 += flux[i] * flux[i + lag2];
+        }
+        ac += ac2 * 0.5;
+      }
+
+      const bpm = (60 * hopRate) / lag;
+      // Gentle Latin/urban groove prior (84-136 BPM: Reggaeton 88-98, Cumbia 90-106, Salsa 85-108/130)
+      const prior = bpm >= 84 && bpm <= 136 ? 1.15 : 0.95;
+      const score = (ac / Math.max(1, limit)) * prior;
+
+      if (score > bestScore) {
+        bestScore = score;
+        bestBpm = bpm;
+      }
+    }
+
+    return Math.max(70, Math.min(165, Math.round(bestBpm)));
+  }
+
+  public analyzeBufferIntro(buffer: AudioBuffer): {
+    introStartSec: number;
+    detectedBpm: number;
+  } {
+    const cached = this.bufferAnalysisCache.get(buffer);
+    if (cached) return cached;
+
+    const startSample = this.detectIntroStartSample(buffer);
+    const detectedBpm = this.estimateBpmFromBuffer(buffer, startSample);
+    const result = {
+      introStartSec: Number((startSample / buffer.sampleRate).toFixed(3)),
+      detectedBpm,
+    };
+    this.bufferAnalysisCache.set(buffer, result);
+    return result;
+  }
+
+  public async analyzeAudioUrl(
+    url: string
+  ): Promise<{ introStartSec: number; detectedBpm: number } | null> {
+    if (!url) return null;
+    const ctx = this.ensureContext();
+    let buffer = this.urlBufferCache.get(url);
+    if (!buffer) {
+      try {
+        const res = await fetch(url);
+        const arr = await res.arrayBuffer();
+        buffer = await ctx.decodeAudioData(arr);
+        this.urlBufferCache.set(url, buffer);
+      } catch {
+        return null;
+      }
+    }
+    return this.analyzeBufferIntro(buffer);
+  }
+
+  public async extractIntroClipFromUrl(
+    url: string,
+    trackName: string,
+    overrideBpm?: number,
+    overrideStartSec?: number
+  ): Promise<{
+    file: File;
+    url: string;
+    introStartSec: number;
+    detectedBpm: number;
+  } | null> {
+    if (!url) return null;
+    const ctx = this.ensureContext();
+    let buffer = this.urlBufferCache.get(url);
+    if (!buffer) {
+      try {
+        const res = await fetch(url);
+        const arr = await res.arrayBuffer();
+        buffer = await ctx.decodeAudioData(arr);
+        this.urlBufferCache.set(url, buffer);
+      } catch {
+        return null;
+      }
+    }
+
+    const analysis = this.analyzeBufferIntro(buffer);
+    const introStartSec =
+      typeof overrideStartSec === 'number' && overrideStartSec >= 0
+        ? Math.min(Math.max(0, buffer.duration - 1), overrideStartSec)
+        : analysis.introStartSec;
+    const detectedBpm =
+      overrideBpm && overrideBpm >= 60 && overrideBpm <= 200
+        ? Math.round(overrideBpm)
+        : analysis.detectedBpm;
+
+    const sr = buffer.sampleRate;
+    const clipEndSec = Math.min(buffer.duration, Math.max(16, introStartSec + 14));
+    const clipSamples = Math.max(1024, Math.round(clipEndSec * sr));
+
+    const ch0 = buffer.getChannelData(0);
+    const ch1 = buffer.numberOfChannels > 1 ? buffer.getChannelData(1) : ch0;
+    const sliceL = ch0.slice(0, clipSamples);
+    const sliceR = ch1.slice(0, clipSamples);
+
+    const wavBlob = encodeWav(sliceL, sliceR, sr);
+    const safeSlug = trackName
+      .replace(/[^a-zA-Z0-9_-]+/g, '_')
+      .replace(/^_+|_+$/g, '')
+      .slice(0, 28) || 'cola_base';
+    const file = new File([wavBlob], `${safeSlug}_cola.wav`, {
+      type: 'audio/wav',
+    });
+    const clipUrl = URL.createObjectURL(file);
+
+    // Pre-populate decoded buffer cache for instant zero-latency pad playback
+    const clipBuf = ctx.createBuffer(2, clipSamples, sr);
+    clipBuf.copyToChannel(sliceL, 0);
+    clipBuf.copyToChannel(sliceR, 1);
+    this.urlBufferCache.set(clipUrl, clipBuf);
+    this.bufferAnalysisCache.set(clipBuf, { introStartSec, detectedBpm });
+
+    return {
+      file,
+      url: clipUrl,
+      introStartSec,
+      detectedBpm,
+    };
+  }
+
   private createBeatLoopBuffer(
     ctx: AudioContext,
     srcBuffer: AudioBuffer,
     beats: 4 | 8,
-    bpm: number
+    bpm: number,
+    startSec?: number
   ): AudioBuffer {
     const safeBpm = Math.max(40, Math.min(220, bpm || 100));
     const targetSec = (beats * 60) / safeBpm;
     const targetSamples = Math.max(256, Math.round(targetSec * ctx.sampleRate));
+
+    const ch0 = srcBuffer.getChannelData(0);
+    let startSample =
+      typeof startSec === 'number' && Number.isFinite(startSec) && startSec >= 0
+        ? this.findZeroCrossing(
+            ch0,
+            Math.min(
+              Math.max(0, srcBuffer.length - 256),
+              Math.round(startSec * srcBuffer.sampleRate)
+            ),
+            Math.round(srcBuffer.sampleRate * 0.004)
+          )
+        : this.detectIntroStartSample(srcBuffer);
+
+    if (startSample >= srcBuffer.length - 128) {
+      startSample = 0;
+    }
+
     const out = ctx.createBuffer(
       srcBuffer.numberOfChannels,
       targetSamples,
       ctx.sampleRate
     );
-    const fadeSamples = Math.min(
-      Math.round(0.006 * ctx.sampleRate),
-      Math.floor(targetSamples / 8)
+    const headFade = Math.min(
+      Math.round(0.003 * ctx.sampleRate),
+      Math.floor(targetSamples / 32)
+    );
+    const tailFade = Math.min(
+      Math.round(0.01 * ctx.sampleRate),
+      Math.floor(targetSamples / 10)
     );
 
+    const available = Math.max(1, srcBuffer.length - startSample);
     for (let ch = 0; ch < srcBuffer.numberOfChannels; ch++) {
       const srcData = srcBuffer.getChannelData(ch);
       const outData = out.getChannelData(ch);
-      const copyLen = Math.min(srcData.length, targetSamples);
+      const copyLen = Math.min(available, targetSamples);
       for (let i = 0; i < copyLen; i++) {
-        let sample = srcData[i];
-        // Smooth 6ms tail fade if source was trimmed to beat boundary to prevent clicks
-        if (srcData.length > targetSamples && i >= copyLen - fadeSamples) {
-          sample *= (copyLen - i) / fadeSamples;
+        let sample = srcData[startSample + i];
+        if (i < headFade && startSample > 0) {
+          sample *= i / headFade;
+        }
+        if (i >= copyLen - tailFade) {
+          sample *= (copyLen - i) / tailFade;
         }
         outData[i] = sample;
       }
@@ -738,8 +1009,19 @@ class ShowLiveAudioEngine {
         src.loopEnd = buffer.duration;
       } else {
         const beats: 4 | 8 = effectiveMode === 'loop-4' ? 4 : 8;
-        const loopBpm = pad.loopBpm || fallbackBpm || 100;
-        const loopBuf = this.createBeatLoopBuffer(ctx, buffer, beats, loopBpm);
+        const analysis = this.analyzeBufferIntro(buffer);
+        const loopBpm = pad.loopBpm || analysis.detectedBpm || fallbackBpm || 100;
+        const startSec =
+          typeof pad.loopStartSec === 'number'
+            ? pad.loopStartSec
+            : analysis.introStartSec;
+        const loopBuf = this.createBeatLoopBuffer(
+          ctx,
+          buffer,
+          beats,
+          loopBpm,
+          startSec
+        );
         src.buffer = loopBuf;
         src.loop = true;
         src.loopStart = 0;

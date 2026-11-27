@@ -490,6 +490,9 @@ function sanitizeBanksForCloud(banks: SamplerBank[]): SamplerBank[] {
       if (typeof p.loopBpm === 'number' && Number.isFinite(p.loopBpm)) {
         pad.loopBpm = Math.max(40, Math.min(220, Math.round(p.loopBpm)));
       }
+      if (typeof p.loopStartSec === 'number' && Number.isFinite(p.loopStartSec) && p.loopStartSec >= 0) {
+        pad.loopStartSec = Math.min(60, Number(p.loopStartSec.toFixed(3)));
+      }
       if (p.loopFullFile) {
         pad.loopFullFile = true;
       }

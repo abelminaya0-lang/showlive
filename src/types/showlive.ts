@@ -95,6 +95,7 @@ export interface SamplerPad {
   volume: number; // 0 to 1
   loopMode?: PadLoopMode;
   loopBpm?: number;
+  loopStartSec?: number;
   loopFullFile?: boolean;
 }
 

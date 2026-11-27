@@ -17,6 +17,7 @@ import {
   INITIAL_PLAYLISTS,
   INITIAL_SAMPLER_BANKS,
   INITIAL_TRACKS,
+  getOrCreateDemoTrackUrl,
 } from './audio/demoTracks';
 import { LandingView } from './components/LandingView';
 import { auth, googleProvider } from './firebase';
@@ -1500,7 +1501,7 @@ export default function App() {
     audioEngine.preloadPad(updatedPad);
   };
 
-  const handleDropAudioOnPad = (padId: number, file: File) => {
+  const handleDropAudioOnPad = async (padId: number, file: File) => {
     if (!file.type.startsWith('audio/') && !/\.(mp3|wav|ogg|m4a)$/i.test(file.name)) {
       return;
     }
@@ -1509,6 +1510,9 @@ export default function App() {
     const activeBank = samplerBanks.find((b) => b.id === activeBankId);
     const existing = activeBank?.pads.find((p) => p.id === padId);
     if (!existing) return;
+
+    const isLoopMode = triggerMode === 'loop-4' || triggerMode === 'loop-8';
+    const analysis = await audioEngine.analyzeAudioUrl(url);
     handleSavePad(
       {
         ...existing,
@@ -1517,10 +1521,82 @@ export default function App() {
         customAudioUrl: url,
         customAudioName: file.name,
         fxPreset: undefined,
+        loopMode: isLoopMode ? triggerMode : existing.loopMode,
+        loopBpm: analysis?.detectedBpm || existing.loopBpm,
+        loopStartSec: analysis?.introStartSec ?? existing.loopStartSec,
       },
       file
     );
-    showToast(`Sample cargado en Pad ${padId}: ${label}`);
+    showToast(
+      analysis
+        ? `Cargado en Pad ${padId}: ${label} (${analysis.detectedBpm} BPM · Cola ${analysis.introStartSec.toFixed(2)}s)`
+        : `Sample cargado en Pad ${padId}: ${label}`
+    );
+  };
+
+  const extractDeckIntroClip = async (deckId: DeckId) => {
+    const deck = deckId === 'A' ? deckA : deckB;
+    if (deck.source !== 'local' || !deck.track) return null;
+    const url =
+      deck.track.sourceType === 'file'
+        ? deck.track.videoUrl || deck.track.audioUrl || ''
+        : getOrCreateDemoTrackUrl(deck.track);
+    if (!url) return null;
+    const clip = await audioEngine.extractIntroClipFromUrl(
+      url,
+      deck.track.name,
+      deck.track.bpm
+    );
+    if (!clip) return null;
+    return {
+      ...clip,
+      label: deck.track.name.slice(0, 11),
+    };
+  };
+
+  const handleCaptureDeckIntro = async (deckId: DeckId, beats: 4 | 8) => {
+    const deck = deckId === 'A' ? deckA : deckB;
+    if (deck.source !== 'local' || !deck.track) {
+      showToast(`Carga primero una canción local en Deck ${deckId}`);
+      return;
+    }
+    const clip = await extractDeckIntroClip(deckId);
+    if (!clip) {
+      showToast(`No se pudo analizar el audio del Deck ${deckId}`);
+      return;
+    }
+    const activeBank = samplerBanks.find((b) => b.id === activeBankId) || samplerBanks[0];
+    if (!activeBank) return;
+
+    const emptyInB = activeBank.pads.find(
+      (p) => p.id >= 17 && !p.fxPreset && !p.customAudioUrl
+    );
+    const emptyAny = activeBank.pads.find(
+      (p) => !p.fxPreset && !p.customAudioUrl
+    );
+    const targetPad = emptyInB || emptyAny || activeBank.pads[31];
+    if (!targetPad) return;
+
+    const loopMode = beats === 8 ? 'loop-8' : 'loop-4';
+    const nextPad: SamplerPad = {
+      ...targetPad,
+      label: clip.label,
+      color: deckId === 'A' ? '#2DD4BF' : '#EC4899',
+      customAudioUrl: clip.url,
+      customAudioName: clip.file.name,
+      fxPreset: undefined,
+      loopMode,
+      loopBpm: clip.detectedBpm,
+      loopStartSec: clip.introStartSec,
+      loopFullFile: false,
+    };
+
+    await handleSavePad(nextPad, clip.file);
+    audioEngine.resume();
+    await audioEngine.triggerPad(nextPad, loopMode, clip.detectedBpm);
+    showToast(
+      `1ª Cola ${beats}T de "${deck.track.name}" (${clip.detectedBpm} BPM) en Pad ${targetPad.id}`
+    );
   };
 
   if (showAdminDashboard && isAdmin && authUser) {
@@ -1820,6 +1896,7 @@ export default function App() {
                 setMobileTab('library');
               }}
               onUnloadTrack={() => handleUnloadDeck('A')}
+              onCaptureIntroToPad={handleCaptureDeckIntro}
             />
           </div>
 
@@ -1888,6 +1965,7 @@ export default function App() {
                 setMobileTab('library');
               }}
               onUnloadTrack={() => handleUnloadDeck('B')}
+              onCaptureIntroToPad={handleCaptureDeckIntro}
             />
           </div>
         </section>
@@ -1997,6 +2075,9 @@ export default function App() {
               onChangeTriggerMode={setTriggerMode}
               fallbackBpm={activeDeckBpm}
               isDucking={isSamplerDucking}
+              deckALabel={deckA.source === 'local' ? deckA.track?.name || null : null}
+              deckBLabel={deckB.source === 'local' ? deckB.track?.name || null : null}
+              onCaptureDeckIntro={handleCaptureDeckIntro}
               isCollapsed={
                 workspaceMode === 'pads' || mobileTab === 'sampler' ? false : samplerCollapsed
               }
@@ -2164,6 +2245,9 @@ export default function App() {
         <PadEditorModal
           pad={editingPad}
           activeDeckBpm={activeDeckBpm}
+          hasDeckA={Boolean(deckA.source === 'local' && deckA.track)}
+          hasDeckB={Boolean(deckB.source === 'local' && deckB.track)}
+          onExtractDeckIntro={extractDeckIntroClip}
           onSave={handleSavePad}
           onClose={() => setEditingPad(null)}
         />
