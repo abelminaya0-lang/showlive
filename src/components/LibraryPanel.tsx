@@ -293,8 +293,8 @@ export const LibraryPanel: React.FC<LibraryPanelProps> = ({
 
   return (
     <div className="flex-1 min-w-0 bg-[#101218] border border-white/15 rounded-lg flex flex-col md:flex-row overflow-hidden">
-      {/* Left Sidebar (Desktop) / Top Compact Bar (Mobile): LIBRARY & PLAYLISTS */}
-      <aside className="w-full md:w-[195px] shrink-0 bg-[#0A0B0F] border-b md:border-b-0 md:border-r border-white/10 p-2.5 flex flex-col gap-2 md:gap-4 select-none overflow-y-auto max-h-[155px] md:max-h-none">
+      {/* Left Sidebar (Desktop & Tablet) / Top Compact Bar (Phone): LIBRARY & PLAYLISTS */}
+      <aside className="w-full md:w-[144px] lg:w-[166px] xl:w-[195px] shrink-0 bg-[#0A0B0F] border-b md:border-b-0 md:border-r border-white/10 p-2.5 md:p-2 xl:p-2.5 flex flex-col gap-2 md:gap-3 xl:gap-4 select-none overflow-y-auto max-h-[155px] md:max-h-none">
         <div className="flex md:flex-col items-center md:items-stretch justify-between gap-2">
           <p className="hidden md:block text-[10px] font-extrabold tracking-wider uppercase text-[#FACC15] px-2 mb-1">
             Library
@@ -306,7 +306,7 @@ export const LibraryPanel: React.FC<LibraryPanelProps> = ({
                 onSelectTab('local');
                 onSelectPlaylist(null);
               }}
-              className={`flex-1 md:flex-none min-h-[38px] md:min-h-0 flex items-center justify-center md:justify-start gap-1.5 md:gap-2 px-2.5 py-2 rounded-md text-xs font-bold transition-all cursor-pointer ${
+              className={`flex-1 md:flex-none min-h-[38px] md:min-h-0 flex items-center justify-center md:justify-start gap-1.5 md:gap-1.5 xl:gap-2 px-2.5 md:px-2 xl:px-2.5 py-2 rounded-md text-xs font-bold transition-all cursor-pointer ${
                 activeTab === 'local' && !selectedPlaylistId
                   ? 'bg-[#141720] border-2 border-[#22D3EE] text-[#22D3EE] shadow-[0_0_12px_rgba(34,211,238,0.2)]'
                   : 'text-slate-300 hover:bg-white/5 border border-transparent'
@@ -319,7 +319,7 @@ export const LibraryPanel: React.FC<LibraryPanelProps> = ({
             <button
               type="button"
               onClick={() => onSelectTab('youtube')}
-              className={`flex-1 md:flex-none min-h-[38px] md:min-h-0 flex items-center justify-center md:justify-start gap-1.5 md:gap-2 px-2.5 py-2 rounded-md text-xs font-bold transition-all cursor-pointer ${
+              className={`flex-1 md:flex-none min-h-[38px] md:min-h-0 flex items-center justify-center md:justify-start gap-1.5 md:gap-1.5 xl:gap-2 px-2.5 md:px-2 xl:px-2.5 py-2 rounded-md text-xs font-bold transition-all cursor-pointer ${
                 activeTab === 'youtube'
                   ? 'bg-[#141720] border-2 border-[#EC287B] text-[#EC287B] shadow-[0_0_12px_rgba(236,40,123,0.25)]'
                   : 'text-slate-300 hover:bg-white/5 border border-transparent'
@@ -332,7 +332,7 @@ export const LibraryPanel: React.FC<LibraryPanelProps> = ({
             <button
               type="button"
               onClick={() => onSelectTab('drive')}
-              className={`flex-1 md:flex-none min-h-[38px] md:min-h-0 flex items-center justify-center md:justify-start gap-1.5 md:gap-2 px-2.5 py-2 rounded-md text-xs font-bold transition-all cursor-pointer ${
+              className={`flex-1 md:flex-none min-h-[38px] md:min-h-0 flex items-center justify-center md:justify-start gap-1.5 md:gap-1.5 xl:gap-2 px-2.5 md:px-2 xl:px-2.5 py-2 rounded-md text-xs font-bold transition-all cursor-pointer ${
                 activeTab === 'drive'
                   ? 'bg-[#141720] border-2 border-[#34D399] text-[#34D399] shadow-[0_0_12px_rgba(52,211,153,0.25)]'
                   : 'text-slate-300 hover:bg-white/5 border border-transparent'
@@ -519,14 +519,14 @@ export const LibraryPanel: React.FC<LibraryPanelProps> = ({
                 )}
 
                 {/* Inline compact search */}
-                <div className="relative flex-1 md:flex-none min-w-[130px]">
+                <div className="relative flex-1 md:flex-none min-w-[110px] xl:min-w-[130px]">
                   <Search className="w-3.5 h-3.5 text-slate-500 absolute left-2.5 top-1/2 -translate-y-1/2" />
                   <input
                     type="text"
                     value={searchFilter}
                     onChange={(e) => setSearchFilter(e.target.value)}
                     placeholder="Filtrar pista..."
-                    className="pl-7 pr-2.5 py-1.5 md:py-1 w-full md:w-44 rounded bg-[#0A0B0F] border border-white/15 text-xs text-slate-200 placeholder:text-slate-500 focus:outline-none focus:border-[#22D3EE]"
+                    className="pl-7 pr-2.5 py-1.5 md:py-1 w-full md:w-28 lg:w-36 xl:w-44 rounded bg-[#0A0B0F] border border-white/15 text-xs text-slate-200 placeholder:text-slate-500 focus:outline-none focus:border-[#22D3EE]"
                   />
                 </div>
               </div>
@@ -534,38 +534,38 @@ export const LibraryPanel: React.FC<LibraryPanelProps> = ({
               <button
                 type="button"
                 onClick={onOpenStemModal}
-                className="w-full md:w-auto inline-flex items-center justify-center gap-1.5 px-3.5 py-2 md:py-1.5 rounded-md bg-[#FACC15] hover:bg-[#FDE047] text-[#090A0E] text-xs font-extrabold shadow-[0_0_14px_rgba(250,204,21,0.35)] cursor-pointer transition-all whitespace-nowrap"
+                className="w-full md:w-auto inline-flex items-center justify-center gap-1.5 px-3.5 md:px-2.5 xl:px-3.5 py-2 md:py-1.5 rounded-md bg-[#FACC15] hover:bg-[#FDE047] text-[#090A0E] text-xs font-extrabold shadow-[0_0_14px_rgba(250,204,21,0.35)] cursor-pointer transition-all whitespace-nowrap"
               >
                 <Wand2 className="w-3.5 h-3.5" />
                 <span>Separar Pista (IA)</span>
               </button>
             </div>
 
-            {/* Table Header (Desktop) */}
-            <div className="hidden md:grid grid-cols-12 gap-2 px-4 py-2 text-[10px] font-bold tracking-wider uppercase text-slate-400 border-b border-white/10 bg-[#0A0B0F] shrink-0">
-              <div className="col-span-8">Nombre</div>
-              <div className="col-span-1 text-center">Letra IA</div>
-              <div className="col-span-3 text-right">Acciones</div>
+            {/* Table Header (Desktop & Tablet) */}
+            <div className="hidden md:grid grid-cols-12 gap-2 px-3 xl:px-4 py-2 text-[9px] lg:text-[10px] font-bold tracking-wider uppercase text-slate-400 border-b border-white/10 bg-[#0A0B0F] shrink-0">
+              <div className="col-span-4 lg:col-span-6 xl:col-span-8">Nombre</div>
+              <div className="col-span-3 lg:col-span-2 xl:col-span-1 text-center whitespace-nowrap">Letra IA</div>
+              <div className="col-span-5 lg:col-span-4 xl:col-span-3 text-right">Acciones</div>
             </div>
 
             {/* Tracks List */}
             <div className="flex-1 overflow-y-auto divide-y divide-white/5 bg-[#0C0D12]">
               {visibleTracks.length === 0 ? (
-                <div className="h-full flex flex-col items-center justify-center p-6 text-center">
-                  <div className="w-11 h-11 rounded-full bg-[#141720] border-2 border-[#FACC15]/70 flex items-center justify-center mb-3">
-                    <Music className="w-5 h-5 text-[#EC287B]" />
+                <div className="h-full flex flex-col items-center justify-center p-6 md:p-3 xl:p-6 text-center">
+                  <div className="w-11 h-11 md:w-9 md:h-9 xl:w-11 xl:h-11 rounded-full bg-[#141720] border-2 border-[#FACC15]/70 flex items-center justify-center mb-3 md:mb-2 xl:mb-3 shrink-0">
+                    <Music className="w-5 h-5 md:w-4 md:h-4 xl:w-5 xl:h-5 text-[#EC287B]" />
                   </div>
-                  <p className="text-sm font-bold text-white">
+                  <p className="text-sm md:text-xs xl:text-sm font-bold text-white">
                     Tu biblioteca está vacía — lista para armar tu show
                   </p>
-                  <p className="text-xs text-slate-400 mt-1 max-w-md">
+                  <p className="text-xs md:text-[11px] xl:text-xs text-slate-400 mt-1 max-w-md">
                     Sube tus canciones locales (.mp3, .wav, .m4a, .mp4), carga una carpeta completa o arrastra tus archivos aquí. Se guardan localmente en tu navegador.
                   </p>
-                  <div className="mt-4 flex flex-wrap items-center justify-center gap-2.5">
+                  <div className="mt-4 md:mt-2.5 xl:mt-4 flex flex-wrap items-center justify-center gap-2">
                     <button
                       type="button"
                       onClick={() => fileInputRef.current?.click()}
-                      className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-[#EC287B] hover:bg-[#F43F8E] text-white text-xs font-extrabold cursor-pointer transition-colors shadow-[0_0_14px_rgba(236,40,123,0.4)]"
+                      className="inline-flex items-center gap-2 px-4 md:px-3 xl:px-4 py-2 md:py-1.5 xl:py-2 rounded-lg bg-[#EC287B] hover:bg-[#F43F8E] text-white text-xs font-extrabold cursor-pointer transition-colors shadow-[0_0_14px_rgba(236,40,123,0.4)]"
                     >
                       <Upload className="w-3.5 h-3.5" />
                       <span>Subir Música Local</span>
@@ -573,7 +573,7 @@ export const LibraryPanel: React.FC<LibraryPanelProps> = ({
                     <button
                       type="button"
                       onClick={() => folderInputRef.current?.click()}
-                      className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-[#141720] hover:bg-[#1C212E] border border-[#22D3EE]/60 text-[#22D3EE] text-xs font-bold cursor-pointer transition-colors"
+                      className="inline-flex items-center gap-2 px-4 md:px-3 xl:px-4 py-2 md:py-1.5 xl:py-2 rounded-lg bg-[#141720] hover:bg-[#1C212E] border border-[#22D3EE]/60 text-[#22D3EE] text-xs font-bold cursor-pointer transition-colors"
                     >
                       <FolderPlus className="w-3.5 h-3.5 text-[#FACC15]" />
                       <span>Cargar Carpeta Completa</span>
@@ -584,16 +584,16 @@ export const LibraryPanel: React.FC<LibraryPanelProps> = ({
                 visibleTracks.map((track) => (
                   <div
                     key={track.id}
-                    className="flex flex-col md:grid md:grid-cols-12 gap-2 px-3 md:px-4 py-3 md:py-2 md:items-center hover:bg-white/[0.03] transition-colors group"
+                    className="flex flex-col md:grid md:grid-cols-12 gap-2 px-3 xl:px-4 py-3 md:py-2 md:items-center hover:bg-white/[0.03] transition-colors group"
                   >
                     <div className="flex items-center justify-between gap-2 md:contents">
-                      <div className="md:col-span-8 min-w-0 flex items-center gap-2 flex-1">
+                      <div className="md:col-span-4 lg:col-span-6 xl:col-span-8 min-w-0 flex items-center gap-2 flex-1">
                         <span className="text-xs sm:text-sm md:text-xs font-medium text-slate-100 truncate">
                           {track.name}
                         </span>
                       </div>
 
-                      <div className="md:col-span-1 flex justify-center shrink-0">
+                      <div className="md:col-span-3 lg:col-span-2 xl:col-span-1 flex justify-center shrink-0">
                         <button
                           type="button"
                           onClick={() => onOpenAiLyrics(track)}
@@ -614,7 +614,7 @@ export const LibraryPanel: React.FC<LibraryPanelProps> = ({
                       </div>
                     </div>
 
-                    <div className="md:col-span-3 flex items-center justify-end gap-2 md:gap-1.5">
+                    <div className="md:col-span-5 lg:col-span-4 xl:col-span-3 flex items-center justify-end gap-2 md:gap-1 xl:gap-1.5">
                       <button
                         type="button"
                         onClick={() => onExportTrackOrShow(track)}

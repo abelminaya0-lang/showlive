@@ -2027,8 +2027,8 @@ export default function App() {
         userEmail={authUser?.email || null}
       />
 
-      {/* Mobile Compact Header (< lg) */}
-      <div className="lg:hidden relative h-11 flex items-center justify-between px-3 bg-[#101218] border-b border-white/10 shrink-0">
+      {/* Mobile Compact Header (< md) */}
+      <div className="md:hidden relative h-11 flex items-center justify-between px-3 bg-[#101218] border-b border-white/10 shrink-0">
         <div className="studio-tricolor-bar absolute bottom-0 inset-x-0 h-[2px] opacity-85 pointer-events-none" />
         <span className="font-display text-sm font-extrabold tracking-tight">
           <span className="text-[#FACC15]">Show</span>
@@ -2082,10 +2082,10 @@ export default function App() {
       </div>
 
       {/* Main Studio Body */}
-      <main className="flex-1 min-h-0 p-2 sm:p-2.5 flex flex-col gap-2 lg:gap-2.5 overflow-hidden">
+      <main className="flex-1 min-h-0 p-2 sm:p-2.5 flex flex-col gap-2 xl:gap-2.5 overflow-hidden">
         {/* Mobile Deck A / Deck B Quick Switcher (shown in mobile Decks mode) */}
         {workspaceMode !== 'pads' && mobileTab === 'decks' && (
-          <div className="flex lg:hidden items-center gap-1.5 shrink-0">
+          <div className="flex md:hidden items-center gap-1.5 shrink-0">
             <button
               type="button"
               onClick={() => setMobileActiveDeck('A')}
@@ -2152,15 +2152,15 @@ export default function App() {
             workspaceMode === 'pads'
               ? 'fixed -left-[10000px] top-0 w-[800px] h-[360px] opacity-0 pointer-events-none'
               : mobileTab === 'decks' || mobileTab === 'mixer'
-              ? 'flex flex-col flex-1 min-h-0 gap-2 lg:flex-none lg:flex-row lg:items-stretch lg:gap-2.5 lg:h-[50%] shrink-0'
-              : 'fixed -left-[10000px] top-0 w-[720px] h-[320px] opacity-0 pointer-events-none lg:static lg:left-auto lg:top-auto lg:w-auto lg:opacity-100 lg:pointer-events-auto lg:flex lg:flex-none lg:flex-row lg:items-stretch lg:gap-2.5 lg:h-[50%] shrink-0'
+              ? 'flex flex-col flex-1 min-h-0 gap-2 md:flex-none md:flex-row md:items-stretch md:gap-2 xl:gap-2.5 md:h-[40%] lg:h-[42%] xl:h-[50%] shrink-0'
+              : 'fixed -left-[10000px] top-0 w-[720px] h-[320px] opacity-0 pointer-events-none md:static md:left-auto md:top-auto md:w-auto md:opacity-100 md:pointer-events-auto md:flex md:flex-none md:flex-row md:items-stretch md:gap-2 xl:gap-2.5 md:h-[40%] lg:h-[42%] xl:h-[50%] shrink-0'
           }
         >
           <div
             className={
               mobileTab === 'decks' && mobileActiveDeck === 'A'
                 ? 'flex flex-1 min-h-0 min-w-0'
-                : 'fixed -left-[10000px] top-0 w-[640px] h-[360px] opacity-0 pointer-events-none lg:static lg:left-auto lg:top-auto lg:w-auto lg:h-auto lg:opacity-100 lg:pointer-events-auto lg:flex lg:flex-1 lg:min-w-0'
+                : 'fixed -left-[10000px] top-0 w-[640px] h-[360px] opacity-0 pointer-events-none md:static md:left-auto md:top-auto md:w-auto md:h-auto md:opacity-100 md:pointer-events-auto md:flex md:flex-1 md:min-w-0'
             }
           >
             <DeckPanel
@@ -2214,8 +2214,8 @@ export default function App() {
           <div
             className={
               mobileTab === 'mixer'
-                ? 'flex flex-1 min-h-0 lg:flex-none lg:order-2'
-                : 'hidden lg:flex lg:order-2 min-h-0'
+                ? 'flex flex-1 min-h-0 md:flex-none md:order-2'
+                : 'hidden md:flex md:order-2 min-h-0'
             }
           >
             <MixerPanel
@@ -2237,8 +2237,8 @@ export default function App() {
           <div
             className={
               mobileTab === 'decks' && mobileActiveDeck === 'B'
-                ? 'flex flex-1 min-h-0 min-w-0 lg:order-3'
-                : 'fixed -left-[10000px] top-0 w-[640px] h-[360px] opacity-0 pointer-events-none lg:static lg:left-auto lg:top-auto lg:w-auto lg:h-auto lg:opacity-100 lg:pointer-events-auto lg:order-3 lg:flex lg:flex-1 lg:min-w-0'
+                ? 'flex flex-1 min-h-0 min-w-0 md:order-3'
+                : 'fixed -left-[10000px] top-0 w-[640px] h-[360px] opacity-0 pointer-events-none md:static md:left-auto md:top-auto md:w-auto md:h-auto md:opacity-100 md:pointer-events-auto md:order-3 md:flex md:flex-1 md:min-w-0'
             }
           >
             <DeckPanel
@@ -2296,8 +2296,8 @@ export default function App() {
           className={`${
             workspaceMode === 'pads' || mobileTab === 'library' || mobileTab === 'sampler'
               ? 'flex'
-              : 'hidden lg:flex'
-          } flex-1 min-h-0 flex-col lg:flex-row gap-2.5 overflow-hidden`}
+              : 'hidden md:flex'
+          } flex-1 min-h-0 flex-col md:flex-row gap-2 xl:gap-2.5 overflow-hidden`}
         >
           <div
             className={
@@ -2305,7 +2305,7 @@ export default function App() {
                 ? 'hidden'
                 : mobileTab === 'library'
                 ? 'flex flex-1 min-h-0 min-w-0 overflow-hidden'
-                : 'hidden lg:flex lg:flex-1 lg:min-h-0 lg:min-w-0 overflow-hidden'
+                : 'hidden md:flex md:flex-1 md:min-h-0 md:min-w-0 overflow-hidden'
             }
           >
             <LibraryPanel
@@ -2415,7 +2415,7 @@ export default function App() {
             className={
               workspaceMode === 'pads' || mobileTab === 'sampler'
                 ? 'flex flex-1 min-h-0'
-                : 'hidden lg:flex lg:min-h-0'
+                : 'hidden md:flex md:min-h-0'
             }
           >
             <SamplerPanel
@@ -2447,10 +2447,10 @@ export default function App() {
         </section>
       </main>
 
-      {/* Mobile Bottom Navigation Bar (< lg) */}
+      {/* Mobile Bottom Navigation Bar (< md) */}
       <nav
         aria-label="Navegación móvil"
-        className="lg:hidden h-[58px] shrink-0 bg-[#101218] border-t border-white/15 grid grid-cols-5 items-center px-1 select-none"
+        className="md:hidden h-[58px] shrink-0 bg-[#101218] border-t border-white/15 grid grid-cols-5 items-center px-1 select-none"
       >
         <button
           type="button"
@@ -2609,7 +2609,7 @@ export default function App() {
 
       {/* Subtle Bottom Toast */}
       {toastMsg && (
-        <div className="fixed bottom-16 lg:bottom-4 left-1/2 -translate-x-1/2 z-50 px-4 py-2 rounded-lg bg-[#101218]/95 border border-[#FACC15]/75 text-xs font-bold text-[#FACC15] shadow-[0_0_16px_rgba(250,204,21,0.2)] pointer-events-none">
+        <div className="fixed bottom-16 md:bottom-4 left-1/2 -translate-x-1/2 z-50 px-4 py-2 rounded-lg bg-[#101218]/95 border border-[#FACC15]/75 text-xs font-bold text-[#FACC15] shadow-[0_0_16px_rgba(250,204,21,0.2)] pointer-events-none">
           {toastMsg}
         </div>
       )}

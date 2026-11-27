@@ -171,7 +171,7 @@ export const SamplerPanel: React.FC<SamplerPanelProps> = ({
       </p>
       <div
         className={`grid grid-cols-4 ${
-          isFullPadsView ? 'gap-2.5 flex-1' : 'gap-1.5'
+          isFullPadsView ? 'gap-2.5 flex-1' : 'gap-1.5 md:gap-1.5 lg:gap-2 xl:gap-1.5'
         }`}
       >
         {pads.map((pad) => {
@@ -208,7 +208,9 @@ export const SamplerPanel: React.FC<SamplerPanelProps> = ({
                 backgroundColor: isEmpty ? '#0A0B0F' : pad.color,
               }}
               className={`relative rounded-md border transition-all flex flex-col items-center justify-center p-1 select-none cursor-pointer overflow-hidden ${
-                isFullPadsView ? 'min-h-[76px]' : 'h-14 lg:h-[52px]'
+                isFullPadsView
+                  ? 'min-h-[76px] md:min-h-[90px] xl:min-h-[76px]'
+                  : 'h-14 md:h-[64px] lg:h-[60px] xl:h-[52px]'
               } ${
                 isLooping
                   ? 'ring-2 ring-[#22D3EE] border-white shadow-[0_0_18px_rgba(34,211,238,0.75)] animate-pulse'
@@ -240,18 +242,20 @@ export const SamplerPanel: React.FC<SamplerPanelProps> = ({
               )}
 
               {isEmpty ? (
-                <span className="text-[10px] font-medium text-slate-500">Empty</span>
+                <span className="text-[10px] md:text-[11px] xl:text-[10px] font-medium text-slate-500">
+                  Empty
+                </span>
               ) : (
                 <>
                   <span
-                    className={`text-[10px] sm:text-[11px] font-extrabold leading-tight truncate max-w-full px-1 ${
+                    className={`text-[10px] sm:text-[11px] md:text-xs xl:text-[11px] font-extrabold leading-tight truncate max-w-full px-1 ${
                       isBrightBg ? 'text-slate-950' : 'text-white'
                     }`}
                   >
                     {pad.label}
                   </span>
                   <span
-                    className={`mt-0.5 px-1.5 py-[1px] rounded-full text-[8px] font-mono-tabular font-bold ${
+                    className={`mt-0.5 px-1.5 py-[1px] rounded-full text-[8px] md:text-[9px] xl:text-[8px] font-mono-tabular font-bold ${
                       isBrightBg
                         ? 'bg-black/20 text-slate-900'
                         : 'bg-black/35 text-white/90'
@@ -273,15 +277,15 @@ export const SamplerPanel: React.FC<SamplerPanelProps> = ({
       className={`${
         isFullPadsView
           ? 'w-full h-full flex'
-          : 'w-full lg:w-[445px] xl:w-[480px] shrink-0 flex'
+          : 'w-full md:w-[395px] lg:w-[530px] xl:w-[480px] shrink-0 flex'
       } gap-1.5`}
     >
-      {/* Vertical CERRAR SAMPLER tab (hidden in full Pads view and on mobile) */}
+      {/* Vertical CERRAR SAMPLER tab (hidden in full Pads view and on phone) */}
       {!isFullPadsView && (
         <button
           type="button"
           onClick={onToggleCollapse}
-          className="hidden lg:flex w-6 shrink-0 bg-[#0A0B0F] hover:bg-[#181B25] border border-white/15 hover:border-[#FACC15]/50 rounded-lg items-center justify-center cursor-pointer transition-colors"
+          className="hidden md:flex w-5 xl:w-6 shrink-0 bg-[#0A0B0F] hover:bg-[#181B25] border border-white/15 hover:border-[#FACC15]/50 rounded-lg items-center justify-center cursor-pointer transition-colors"
           title="Ocultar Sampler"
         >
           <span className="[writing-mode:vertical-rl] rotate-180 text-[9px] font-bold tracking-widest uppercase text-slate-400 hover:text-[#FACC15]">
@@ -291,9 +295,9 @@ export const SamplerPanel: React.FC<SamplerPanelProps> = ({
       )}
 
       {/* Main Sampler Chassis */}
-      <div className="flex-1 min-w-0 bg-[#101218] border border-white/15 rounded-lg p-3 flex flex-col justify-between overflow-y-auto">
+      <div className="flex-1 min-w-0 bg-[#101218] border border-white/15 rounded-lg p-3 md:p-2.5 xl:p-3 flex flex-col justify-between overflow-y-auto">
         {/* Top Sampler Header */}
-        <div className="flex flex-col gap-2 mb-2.5 shrink-0">
+        <div className="flex flex-col gap-2 md:gap-1.5 xl:gap-2 mb-2.5 md:mb-2 xl:mb-2.5 shrink-0">
           <div className="flex items-center justify-between gap-2 flex-wrap">
             <div className="flex items-center gap-1.5">
               <Music2 className="w-4 h-4 text-[#EC287B]" />
@@ -408,7 +412,7 @@ export const SamplerPanel: React.FC<SamplerPanelProps> = ({
                     key={mode.id}
                     type="button"
                     onClick={() => onChangeTriggerMode(mode.id)}
-                    className={`px-1.5 sm:px-2 py-0.5 rounded text-[9.5px] sm:text-[10px] font-extrabold transition-all cursor-pointer border whitespace-nowrap ${
+                    className={`px-1.5 sm:px-2 md:px-2.5 md:py-1 xl:px-2 xl:py-0.5 py-0.5 rounded text-[9.5px] sm:text-[10px] md:text-[10.5px] xl:text-[10px] font-extrabold transition-all cursor-pointer border whitespace-nowrap ${
                       triggerMode === mode.id
                         ? mode.id === 'loop'
                           ? 'bg-[#FACC15] border-[#FACC15] text-[#090A0E] shadow-[0_0_10px_rgba(250,204,21,0.45)]'
@@ -424,13 +428,13 @@ export const SamplerPanel: React.FC<SamplerPanelProps> = ({
               <button
                 type="button"
                 onClick={onToggleFullPadsView}
-                className="p-1.5 rounded bg-[#0A0B0F] hover:bg-[#181B25] border border-[#FACC15]/55 text-[#FACC15] cursor-pointer"
+                className="p-1.5 md:p-2 xl:p-1.5 rounded bg-[#0A0B0F] hover:bg-[#181B25] border border-[#FACC15]/55 text-[#FACC15] cursor-pointer"
                 title={isFullPadsView ? 'Volver a Vista Mixer' : 'Expandir Pads'}
               >
                 {isFullPadsView ? (
-                  <Minimize2 className="w-3.5 h-3.5" />
+                  <Minimize2 className="w-3.5 h-3.5 md:w-4 md:h-4 xl:w-3.5 xl:h-3.5" />
                 ) : (
-                  <Maximize2 className="w-3.5 h-3.5" />
+                  <Maximize2 className="w-3.5 h-3.5 md:w-4 md:h-4 xl:w-3.5 xl:h-3.5" />
                 )}
               </button>
             </div>
@@ -477,7 +481,7 @@ export const SamplerPanel: React.FC<SamplerPanelProps> = ({
         {/* 32-Pad Dual Bank Matrix */}
         <div
           className={`flex-1 grid grid-cols-1 sm:grid-cols-2 ${
-            isFullPadsView ? 'gap-5' : 'gap-3'
+            isFullPadsView ? 'gap-5' : 'gap-3 md:gap-2.5 xl:gap-3'
           } items-stretch`}
         >
           {renderPadGrid(bankAPads, 'Bank A (1-16)')}

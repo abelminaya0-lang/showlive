@@ -81,12 +81,12 @@ export const TopBar: React.FC<TopBarProps> = ({
   };
 
   return (
-    <header className="hidden lg:flex relative h-12 w-full bg-[#101218] border-b border-white/10 px-4 items-center justify-between gap-4 shrink-0 select-none">
+    <header className="hidden md:flex relative h-12 w-full bg-[#101218] border-b border-white/10 px-2.5 lg:px-4 items-center justify-between gap-2 lg:gap-4 shrink-0 select-none">
       {/* Bottom Tri-Color Hardware Accent Line */}
       <div className="studio-tricolor-bar absolute bottom-0 inset-x-0 h-[2px] opacity-90 pointer-events-none" />
 
       {/* Brand */}
-      <div className="flex items-center gap-2.5 shrink-0">
+      <div className="flex items-center gap-2 lg:gap-2.5 shrink-0">
         <div className="w-7 h-7 rounded-full bg-[#161820] border-2 border-[#FACC15] flex items-center justify-center shadow-[0_0_12px_rgba(250,204,21,0.35)]">
           <Mic className="w-3.5 h-3.5 text-[#EC287B]" />
         </div>
@@ -97,13 +97,13 @@ export const TopBar: React.FC<TopBarProps> = ({
       </div>
 
       {/* Right Console Controls */}
-      <div className="flex items-center gap-2.5 overflow-x-auto no-scrollbar">
+      <div className="flex items-center gap-1.5 lg:gap-2.5 overflow-x-auto no-scrollbar">
         {/* MIXER | PADS segmented toggle */}
         <div className="flex items-center bg-[#0A0B0F] border border-white/15 rounded-md p-0.5 shrink-0">
           <button
             type="button"
             onClick={() => onChangeMode('mixer')}
-            className={`px-3 py-1 text-[11px] font-extrabold tracking-wider uppercase rounded transition-all cursor-pointer whitespace-nowrap border ${
+            className={`px-2.5 lg:px-3 py-1 text-[11px] font-extrabold tracking-wider uppercase rounded transition-all cursor-pointer whitespace-nowrap border ${
               workspaceMode === 'mixer'
                 ? 'bg-[#FACC15] border-[#FACC15] text-[#090A0E] shadow-[0_0_12px_rgba(250,204,21,0.45)]'
                 : 'border-transparent text-slate-400 hover:text-white'
@@ -114,7 +114,7 @@ export const TopBar: React.FC<TopBarProps> = ({
           <button
             type="button"
             onClick={() => onChangeMode('pads')}
-            className={`px-3 py-1 text-[11px] font-extrabold tracking-wider uppercase rounded transition-all cursor-pointer whitespace-nowrap border ${
+            className={`px-2.5 lg:px-3 py-1 text-[11px] font-extrabold tracking-wider uppercase rounded transition-all cursor-pointer whitespace-nowrap border ${
               workspaceMode === 'pads'
                 ? 'bg-[#EC287B] border-[#EC287B] text-white shadow-[0_0_12px_rgba(236,40,123,0.5)]'
                 : 'border-transparent text-slate-400 hover:text-white'
@@ -128,7 +128,7 @@ export const TopBar: React.FC<TopBarProps> = ({
         <button
           type="button"
           onClick={toggleFullscreen}
-          className="flex items-center gap-1.5 px-3 py-1.5 rounded-md bg-[#141720] hover:bg-[#1B202C] border border-white/15 hover:border-[#22D3EE]/60 text-xs font-semibold text-slate-200 transition-colors cursor-pointer whitespace-nowrap shrink-0"
+          className="flex items-center gap-1.5 px-2.5 lg:px-3 py-1.5 rounded-md bg-[#141720] hover:bg-[#1B202C] border border-white/15 hover:border-[#22D3EE]/60 text-xs font-semibold text-slate-200 transition-colors cursor-pointer whitespace-nowrap shrink-0"
           title="Pantalla Completa"
         >
           {isFullscreen ? (
@@ -136,11 +136,11 @@ export const TopBar: React.FC<TopBarProps> = ({
           ) : (
             <Maximize2 className="w-3.5 h-3.5 text-[#22D3EE]" />
           )}
-          <span className="hidden sm:inline">Fullscreen</span>
+          <span className="hidden lg:inline">Fullscreen</span>
         </button>
 
         {/* Live RAM & FPS counter */}
-        <div className="hidden md:flex items-center gap-2 px-3 py-1 rounded-md bg-[#0A0B0F] border border-[#22D3EE]/45 text-[#22D3EE] text-[11px] font-mono-tabular whitespace-nowrap shrink-0 shadow-[0_0_10px_rgba(34,211,238,0.12)]">
+        <div className="hidden lg:flex items-center gap-2 px-3 py-1 rounded-md bg-[#0A0B0F] border border-[#22D3EE]/45 text-[#22D3EE] text-[11px] font-mono-tabular whitespace-nowrap shrink-0 shadow-[0_0_10px_rgba(34,211,238,0.12)]">
           <span className="w-2 h-2 rounded-full bg-[#FACC15]" />
           <span>
             RAM: {ramMb} MB ({ramPct}%) | {fps} FPS
@@ -152,7 +152,7 @@ export const TopBar: React.FC<TopBarProps> = ({
           <button
             type="button"
             onClick={onOpenAdminDashboard}
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-md bg-[#141720] hover:bg-[#1B202C] border border-[#FACC15]/60 text-xs font-bold text-[#FACC15] transition-colors cursor-pointer whitespace-nowrap shrink-0 shadow-[0_0_10px_rgba(250,204,21,0.18)]"
+            className="flex items-center gap-1.5 px-2.5 lg:px-3 py-1.5 rounded-md bg-[#141720] hover:bg-[#1B202C] border border-[#FACC15]/60 text-xs font-bold text-[#FACC15] transition-colors cursor-pointer whitespace-nowrap shrink-0 shadow-[0_0_10px_rgba(250,204,21,0.18)]"
             title="Panel personal de clientes y ganancias"
           >
             <Users className="w-3.5 h-3.5" />
@@ -164,7 +164,7 @@ export const TopBar: React.FC<TopBarProps> = ({
         <button
           type="button"
           onClick={onOpenAiConfig}
-          className="flex items-center gap-1.5 px-3 py-1.5 rounded-md bg-[#141720] hover:bg-[#1B202C] border border-white/15 hover:border-[#FACC15]/60 text-xs font-semibold text-slate-200 transition-colors cursor-pointer whitespace-nowrap shrink-0"
+          className="flex items-center gap-1.5 px-2.5 lg:px-3 py-1.5 rounded-md bg-[#141720] hover:bg-[#1B202C] border border-white/15 hover:border-[#FACC15]/60 text-xs font-semibold text-slate-200 transition-colors cursor-pointer whitespace-nowrap shrink-0"
           title={`Modelo activo: ${aiConfig.model}`}
         >
           <Settings className="w-3.5 h-3.5 text-[#FACC15]" />
