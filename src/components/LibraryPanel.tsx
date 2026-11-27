@@ -826,8 +826,21 @@ export const LibraryPanel: React.FC<LibraryPanelProps> = ({
 
             <div className="flex-1 overflow-y-auto">
               {driveError && (
-                <div className="m-3 p-3 rounded-lg bg-red-500/10 border border-red-500/30 text-xs text-red-200">
-                  {driveError}
+                <div className="m-3 p-3 rounded-lg bg-red-500/10 border border-red-500/30 text-xs text-red-200 space-y-2">
+                  <p>{driveError}</p>
+                  {(driveError.includes('bloqueó') ||
+                    driveError.includes('popup') ||
+                    driveError.includes('pestaña')) &&
+                    typeof window !== 'undefined' && (
+                      <a
+                        href={window.location.href}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded bg-red-500/20 hover:bg-red-500/30 border border-red-400/40 text-white font-bold transition-colors"
+                      >
+                        Abrir en pestaña nueva
+                      </a>
+                    )}
                 </div>
               )}
 

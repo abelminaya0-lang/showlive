@@ -343,9 +343,9 @@ export default function App() {
   // Keep in-memory Google Drive auth status synced with Firebase Auth state
   useEffect(() => {
     return initDriveAuth(
-      (fbUser) => {
+      (fbUser, _token, resolvedEmail) => {
         setNeedsDriveAuth(false);
-        setDriveAccountEmail(fbUser.email || null);
+        setDriveAccountEmail(resolvedEmail || fbUser?.email || null);
       },
       () => {
         setNeedsDriveAuth(true);
@@ -363,7 +363,7 @@ export default function App() {
         if (result) {
           const cred = GoogleAuthProvider.credentialFromResult(result);
           if (cred?.accessToken) {
-            setDriveAccessToken(cred.accessToken);
+            setDriveAccessToken(cred.accessToken, result.user.email || null);
             setNeedsDriveAuth(false);
             setDriveAccountEmail(result.user.email || null);
           }
@@ -522,7 +522,7 @@ export default function App() {
       const result = await signInWithPopup(auth, googleProvider);
       const credential = GoogleAuthProvider.credentialFromResult(result);
       if (credential?.accessToken) {
-        setDriveAccessToken(credential.accessToken);
+        setDriveAccessToken(credential.accessToken, result.user.email || null);
         setNeedsDriveAuth(false);
         setDriveAccountEmail(result.user.email || null);
       }
@@ -1519,21 +1519,25 @@ export default function App() {
     setDriveConnecting(true);
     setDriveError(null);
     try {
-      const { user, accessToken } = await signInGoogleForDrive();
-      setDriveAccountEmail(user.email || null);
+      const { user, accessToken, email } = await signInGoogleForDrive();
+      const accountEmail = email || user?.email || null;
+      setDriveAccountEmail(accountEmail);
       setNeedsDriveAuth(false);
       setDriveSelectedFolderId(null);
       await loadDriveLibrary(accessToken, '', null, true);
-      showToast(`Google Drive conectado (${user.email || 'Google'})`);
+      showToast(`Google Drive conectado (${accountEmail || 'Google'})`);
     } catch (err: any) {
       const code = String(err?.code || '');
+      let msg = err?.message || 'No se pudo conectar con Google Drive.';
       if (code === 'auth/popup-closed-by-user') {
-        setDriveError('Cerraste la ventana de Google antes de conectar tu Drive.');
+        msg = 'Cerraste la ventana de Google antes de conectar tu Drive.';
       } else if (code === 'auth/popup-blocked') {
-        setDriveError('Tu navegador bloqueó la ventana de Google. Permite los popups e inténtalo de nuevo.');
-      } else {
-        setDriveError(err?.message || 'No se pudo conectar con Google Drive.');
+        msg = 'Tu navegador bloqueó la ventana emergente de Google. Permite los popups o abre ShowLive en una pestaña nueva.';
+      } else if (code === 'auth/unauthorized-domain') {
+        msg = `El dominio "${window.location.hostname}" no está autorizado en Firebase Auth. Abre ShowLive en pestaña nueva o recarga para usar la conexión directa de Google.`;
       }
+      setDriveError(msg);
+      showToast(msg);
     } finally {
       setDriveConnecting(false);
     }
