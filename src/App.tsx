@@ -1206,8 +1206,8 @@ export default function App() {
         continue;
       }
 
-      const isAudioExt = /\.(mp3|wav|ogg|m4a|aac|flac|opus|wma)$/i.test(file.name);
-      const isVideoExt = /\.(mp4|webm|mkv|mov)$/i.test(file.name);
+      const isAudioExt = /\.(mp3|wav|ogg|oga|m4a|m4b|aac|flac|opus|wma|aiff|aif|alac|mp2|amr|ac3|dts|ape|wv|caf)$/i.test(file.name);
+      const isVideoExt = /\.(mp4|webm|mkv|mov|avi|m4v|flv|3gp)$/i.test(file.name);
       if (
         !file.type.startsWith('audio/') &&
         !file.type.startsWith('video/') &&
@@ -1684,9 +1684,12 @@ export default function App() {
       if (err instanceof DriveAuthError) {
         clearDriveAccessToken();
         setNeedsDriveAuth(true);
+        setDriveHasLoaded(false);
         setDriveError(err.message);
       } else {
-        showToast(`Error al abrir ${file.name} desde Google Drive`);
+        const errMsg = err?.message || `Error al abrir ${file.name} desde Google Drive`;
+        setDriveError(errMsg);
+        showToast(errMsg);
       }
     } finally {
       setDriveLoadingFileId(null);
@@ -2195,6 +2198,7 @@ export default function App() {
               }}
               onUnloadTrack={() => handleUnloadDeck('A')}
               onCaptureIntroToPad={handleCaptureDeckIntro}
+              onPlaybackError={(msg) => showToast(msg)}
             />
           </div>
 
@@ -2267,6 +2271,7 @@ export default function App() {
               }}
               onUnloadTrack={() => handleUnloadDeck('B')}
               onCaptureIntroToPad={handleCaptureDeckIntro}
+              onPlaybackError={(msg) => showToast(msg)}
             />
           </div>
         </section>

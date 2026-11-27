@@ -16,6 +16,7 @@ import {
 } from 'lucide-react';
 import { audioEngine } from '../audio/audioEngine';
 import { getOrCreateDemoTrackUrl } from '../audio/demoTracks';
+import { recoverPlayableObjectUrl } from '../audio/universalAudio';
 import { DeckId, DeckSource, DeckState, StemMode } from '../types/showlive';
 import {
   CHROMATIC_NOTES,
@@ -43,6 +44,7 @@ interface DeckPanelProps {
   onSelectYoutubeTab: () => void;
   onUnloadTrack?: () => void;
   onCaptureIntroToPad?: (deckId: DeckId) => void;
+  onPlaybackError?: (message: string) => void;
 }
 
 function formatTime(sec: number): string {
@@ -71,6 +73,7 @@ export const DeckPanel: React.FC<DeckPanelProps> = ({
   onSelectYoutubeTab,
   onUnloadTrack,
   onCaptureIntroToPad,
+  onPlaybackError,
 }) => {
   const mediaRef = useRef<HTMLVideoElement | null>(null);
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
@@ -80,6 +83,9 @@ export const DeckPanel: React.FC<DeckPanelProps> = ({
   isPlayingRef.current = deck.isPlaying;
   channelVolumeRef.current = channelVolume;
   const [resolvedUrl, setResolvedUrl] = useState<string | null>(null);
+  const [isRecoveringAudio, setIsRecoveringAudio] = useState(false);
+  const recoveryAttemptedForRef = useRef<string | null>(null);
+  const recoveringInFlightRef = useRef(false);
   const [showKeyPicker, setShowKeyPicker] = useState(false);
   const [introLoopActive, setIntroLoopActive] = useState(false);
   const introLoopActiveRef = useRef(introLoopActive);
@@ -93,8 +99,42 @@ export const DeckPanel: React.FC<DeckPanelProps> = ({
 
   const transposed = getTransposedKey(deck.track?.musicalKey, deck.pitchSemitones);
 
+  const attemptAudioRecovery = React.useCallback(
+    async (failedUrl: string, trackId: string, trackName: string) => {
+      if (recoveringInFlightRef.current) return;
+      if (recoveryAttemptedForRef.current === trackId) {
+        onSetPlaying?.(false);
+        onPlaybackError?.(
+          `No se pudo reproducir "${trackName}". El archivo puede estar dañado o tener un formato incompatible.`
+        );
+        return;
+      }
+
+      recoveryAttemptedForRef.current = trackId;
+      recoveringInFlightRef.current = true;
+      setIsRecoveringAudio(true);
+
+      try {
+        const recoveredUrl = await recoverPlayableObjectUrl(failedUrl, trackName);
+        setResolvedUrl(recoveredUrl);
+      } catch (err: any) {
+        onSetPlaying?.(false);
+        onPlaybackError?.(
+          err?.message || `No se pudo reproducir "${trackName}".`
+        );
+      } finally {
+        recoveringInFlightRef.current = false;
+        setIsRecoveringAudio(false);
+      }
+    },
+    [onPlaybackError, onSetPlaying]
+  );
+
   // Resolve local file URL or synthesized demo WAV URL
   useEffect(() => {
+    recoveryAttemptedForRef.current = null;
+    recoveringInFlightRef.current = false;
+    setIsRecoveringAudio(false);
     if (!deck.track || deck.track.sourceType === 'youtube') {
       setResolvedUrl(null);
       return;
@@ -131,7 +171,12 @@ export const DeckPanel: React.FC<DeckPanelProps> = ({
       }
       if (deck.isPlaying) {
         audioEngine.resume();
-        el.play().catch(() => {});
+        el.play().catch((err: any) => {
+          if (err?.name === 'AbortError') return;
+          if (deck.track && resolvedUrl) {
+            attemptAudioRecovery(resolvedUrl, deck.track.id, deck.track.name);
+          }
+        });
       } else {
         el.pause();
       }
@@ -142,7 +187,7 @@ export const DeckPanel: React.FC<DeckPanelProps> = ({
         '*'
       );
     }
-  }, [deck.isPlaying, deck.source, resolvedUrl, deck.id]);
+  }, [deck.isPlaying, deck.source, resolvedUrl, deck.id, deck.track, attemptAudioRecovery]);
 
   // Sync YouTube volume with mixer fader + crossfader
   useEffect(() => {
@@ -753,8 +798,21 @@ export const DeckPanel: React.FC<DeckPanelProps> = ({
                 const el = e.currentTarget;
                 onTimeUpdate(el.currentTime, el.duration || deck.track?.durationSec || 0);
               }}
+              onError={() => {
+                if (deck.source === 'local' && deck.track && resolvedUrl) {
+                  attemptAudioRecovery(resolvedUrl, deck.track.id, deck.track.name);
+                }
+              }}
               onEnded={onEnded}
             />
+          )}
+
+          {isRecoveringAudio && (
+            <div className="absolute inset-0 z-30 bg-black/75 flex items-center justify-center">
+              <span className="px-3 py-1.5 rounded bg-[#141720] border border-[#34D399]/60 text-xs font-bold text-[#34D399]">
+                Adaptando formato de audio...
+              </span>
+            </div>
           )}
 
           {/* YOUTUBE MODE */}

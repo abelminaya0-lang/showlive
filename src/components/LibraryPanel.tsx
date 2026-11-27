@@ -375,7 +375,7 @@ export const LibraryPanel: React.FC<LibraryPanelProps> = ({
           ref={fileInputRef}
           type="file"
           multiple
-          accept="audio/*,video/*,.djlurivera,.json"
+          accept="audio/*,video/*,.mp3,.wav,.flac,.m4a,.m4b,.aac,.ogg,.opus,.wma,.aiff,.aif,.alac,.amr,.ac3,.ape,.wv,.mp4,.mkv,.avi,.mov,.webm,.flv,.djlurivera,.json"
           className="hidden"
           onChange={(e) => {
             if (e.target.files?.length) {

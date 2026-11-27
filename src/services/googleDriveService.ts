@@ -1,4 +1,5 @@
 import { DriveFolder, DriveMusicFile } from '../types/showlive';
+import { ensurePlayableMediaBlob } from '../audio/universalAudio';
 
 const DRIVE_FILES_API = 'https://www.googleapis.com/drive/v3/files';
 
@@ -34,23 +35,42 @@ function escapeDriveQueryValue(val: string): string {
 
 async function parseDriveError(res: Response): Promise<never> {
   let msg = `Error de Google Drive (${res.status})`;
+  let reason = '';
   try {
     const json = await res.json();
     if (json?.error?.message) {
       msg = String(json.error.message);
     }
+    if (Array.isArray(json?.error?.errors) && json.error.errors[0]?.reason) {
+      reason = String(json.error.errors[0].reason);
+    }
   } catch {
     // Ignore JSON parse errors
   }
 
-  if (res.status === 401 || res.status === 403) {
+  if (res.status === 401) {
     throw new DriveAuthError(
-      res.status === 401
-        ? 'Tu sesión de Google Drive expiró. Pulsa el botón de Google para volver a conectar.'
-        : `Permiso denegado en Google Drive: ${msg}`,
-      res.status
+      'Tu sesión de Google Drive expiró. Pulsa el botón de Google para volver a conectar.',
+      401
     );
   }
+
+  if (res.status === 403) {
+    if (
+      reason === 'insufficientPermissions' ||
+      reason === 'authError' ||
+      reason === 'accessDenied'
+    ) {
+      throw new DriveAuthError(`Permiso denegado en Google Drive: ${msg}`, 403);
+    }
+    if (reason === 'cannotDownloadFile') {
+      throw new Error('El propietario de este archivo restringió su descarga en Google Drive.');
+    }
+    if (reason === 'downloadQuotaExceeded') {
+      throw new Error('Google Drive alcanzó el límite temporal de descargas para este archivo.');
+    }
+  }
+
   throw new Error(msg);
 }
 
@@ -132,7 +152,7 @@ export async function listDriveMusicFiles(
   const { query, folderId, folderIds, pageToken, pageSize = 100 } = options;
 
   const mediaFilter =
-    "(mimeType contains 'audio/' or mimeType contains 'video/' or fileExtension = 'mp3' or fileExtension = 'wav' or fileExtension = 'm4a' or fileExtension = 'ogg' or fileExtension = 'flac' or fileExtension = 'aac' or fileExtension = 'wma' or fileExtension = 'opus' or fileExtension = 'aiff' or fileExtension = 'aif' or fileExtension = 'alac' or fileExtension = 'm4b' or fileExtension = 'mp2' or fileExtension = 'amr' or fileExtension = 'mp4' or fileExtension = 'mov' or fileExtension = 'webm' or fileExtension = 'mkv' or fileExtension = 'avi' or fileExtension = 'm4v' or fileExtension = 'flv' or fileExtension = '3gp')";
+    "(mimeType contains 'audio/' or mimeType contains 'video/' or fileExtension = 'mp3' or fileExtension = 'wav' or fileExtension = 'm4a' or fileExtension = 'ogg' or fileExtension = 'flac' or fileExtension = 'aac' or fileExtension = 'wma' or fileExtension = 'opus' or fileExtension = 'aiff' or fileExtension = 'aif' or fileExtension = 'alac' or fileExtension = 'm4b' or fileExtension = 'mp2' or fileExtension = 'amr' or fileExtension = 'ac3' or fileExtension = 'ape' or fileExtension = 'wv' or fileExtension = 'mp4' or fileExtension = 'mov' or fileExtension = 'webm' or fileExtension = 'mkv' or fileExtension = 'avi' or fileExtension = 'm4v' or fileExtension = 'flv' or fileExtension = '3gp')";
 
   const clauses = ['trashed = false', mediaFilter];
 
@@ -190,34 +210,6 @@ export async function listDriveMusicFiles(
   };
 }
 
-function inferIsVideo(file: DriveMusicFile): boolean {
-  const mime = (file.mimeType || '').toLowerCase();
-  if (mime.startsWith('video/')) return true;
-  if (mime.startsWith('audio/')) return false;
-  return /\.(mp4|webm|mkv|mov|avi|m4v|flv|3gp)$/i.test(file.name);
-}
-
-function inferMimeType(file: DriveMusicFile): string {
-  if (file.mimeType && (file.mimeType.startsWith('audio/') || file.mimeType.startsWith('video/'))) {
-    return file.mimeType;
-  }
-  const lower = file.name.toLowerCase();
-  if (lower.endsWith('.mp3') || lower.endsWith('.mp2')) return 'audio/mpeg';
-  if (lower.endsWith('.wav')) return 'audio/wav';
-  if (lower.endsWith('.m4a') || lower.endsWith('.m4b') || lower.endsWith('.alac')) return 'audio/mp4';
-  if (lower.endsWith('.ogg') || lower.endsWith('.opus')) return 'audio/ogg';
-  if (lower.endsWith('.flac')) return 'audio/flac';
-  if (lower.endsWith('.aac')) return 'audio/aac';
-  if (lower.endsWith('.aiff') || lower.endsWith('.aif')) return 'audio/aiff';
-  if (lower.endsWith('.wma')) return 'audio/x-ms-wma';
-  if (lower.endsWith('.mp4') || lower.endsWith('.m4v')) return 'video/mp4';
-  if (lower.endsWith('.webm')) return 'video/webm';
-  if (lower.endsWith('.mov')) return 'video/quicktime';
-  if (lower.endsWith('.avi')) return 'video/x-msvideo';
-  if (lower.endsWith('.mkv')) return 'video/x-matroska';
-  return inferIsVideo(file) ? 'video/mp4' : 'audio/mpeg';
-}
-
 async function probeMediaDuration(objectUrl: string, isVideo: boolean): Promise<number> {
   return new Promise<number>((resolve) => {
     const el = document.createElement(isVideo ? 'video' : 'audio');
@@ -244,7 +236,7 @@ export async function downloadDriveMediaObjectUrl(
     return cached;
   }
 
-  const url = `${DRIVE_FILES_API}/${encodeURIComponent(file.id)}?alt=media&supportsAllDrives=true`;
+  const url = `${DRIVE_FILES_API}/${encodeURIComponent(file.id)}?alt=media&supportsAllDrives=true&acknowledgeAbuse=true`;
   const res = await fetch(url, {
     headers: { Authorization: `Bearer ${token}` },
   });
@@ -254,19 +246,15 @@ export async function downloadDriveMediaObjectUrl(
   }
 
   const rawBlob = await res.blob();
-  const isVideo = inferIsVideo(file);
-  const typedBlob =
-    rawBlob.type && rawBlob.type !== 'application/octet-stream'
-      ? rawBlob
-      : new Blob([rawBlob], { type: inferMimeType(file) });
+  const prepared = await ensurePlayableMediaBlob(rawBlob, file.name, file.mimeType);
 
-  const objectUrl = URL.createObjectURL(typedBlob);
-  const durationSec = await probeMediaDuration(objectUrl, isVideo);
+  const objectUrl = URL.createObjectURL(prepared.blob);
+  const durationSec = await probeMediaDuration(objectUrl, prepared.isVideo);
 
   const entry: CachedMediaEntry = {
     objectUrl,
     durationSec,
-    isVideo,
+    isVideo: prepared.isVideo,
   };
   driveMediaCache.set(file.id, entry);
   return entry;

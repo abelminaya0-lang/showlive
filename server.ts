@@ -1,5 +1,9 @@
 import express from "express";
 import path from "path";
+import os from "os";
+import crypto from "crypto";
+import fs from "fs/promises";
+import { spawn } from "child_process";
 import { fileURLToPath } from "url";
 import dotenv from "dotenv";
 import { GoogleGenAI, Type } from "@google/genai";
@@ -204,6 +208,79 @@ Devuelve el género probable, BPM estimado, tonalidad musical, recomendación de
       });
     }
   });
+
+  // Universal audio fallback transcoder (converts WMA, ALAC, AIFF, AC3, AVI, etc. to MP3)
+  app.post(
+    "/api/audio/transcode",
+    express.raw({ type: "*/*", limit: "200mb" }),
+    async (req, res) => {
+      const body = req.body;
+      if (!Buffer.isBuffer(body) || body.length === 0) {
+        return res.status(400).json({ error: "Archivo de audio vacío o inválido." });
+      }
+
+      const rawName = String(req.header("x-file-name") || "track.bin");
+      const safeExtMatch = rawName.match(/\.[a-zA-Z0-9]{1,8}$/);
+      const safeExt = safeExtMatch ? safeExtMatch[0].toLowerCase() : ".bin";
+      const jobId = crypto.randomUUID();
+      const inputPath = path.join(os.tmpdir(), `showlive-in-${jobId}${safeExt}`);
+      const outputPath = path.join(os.tmpdir(), `showlive-out-${jobId}.mp3`);
+
+      try {
+        await fs.writeFile(inputPath, body);
+
+        await new Promise<void>((resolve, reject) => {
+          const ff = spawn(
+            "/usr/bin/ffmpeg",
+            [
+              "-y",
+              "-i",
+              inputPath,
+              "-vn",
+              "-map_metadata",
+              "-1",
+              "-ac",
+              "2",
+              "-ar",
+              "44100",
+              "-c:a",
+              "libmp3lame",
+              "-b:a",
+              "320k",
+              outputPath,
+            ],
+            { shell: false }
+          );
+
+          let stderr = "";
+          ff.stderr.on("data", (chunk) => {
+            if (stderr.length < 2000) stderr += chunk.toString();
+          });
+          ff.on("error", (err) => reject(err));
+          ff.on("close", (code) => {
+            if (code === 0) resolve();
+            else reject(new Error(stderr || `ffmpeg exited with code ${code}`));
+          });
+        });
+
+        const mp3Buffer = await fs.readFile(outputPath);
+        if (!mp3Buffer.length) {
+          throw new Error("La conversión no generó audio.");
+        }
+        res.setHeader("Content-Type", "audio/mpeg");
+        res.setHeader("Content-Length", String(mp3Buffer.length));
+        return res.send(mp3Buffer);
+      } catch (err: any) {
+        console.error("Error /api/audio/transcode:", err?.message || err);
+        return res.status(422).json({
+          error:
+            "Este archivo tiene un códec dañado o no compatible para convertir a audio.",
+        });
+      } finally {
+        await Promise.allSettled([fs.unlink(inputPath), fs.unlink(outputPath)]);
+      }
+    }
+  );
 
   if (process.env.NODE_ENV === "production") {
     const distPath = path.resolve(__dirname, "dist");
