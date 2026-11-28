@@ -50,7 +50,11 @@ import {
   listDriveFolders,
   listDriveMusicFiles,
 } from './services/googleDriveService';
-import { extractBpmFromTrackName } from './utils/bpmUtils';
+import {
+  computeTempoSync,
+  extractBpmFromTrackName,
+  pickNextAutoDjCandidate,
+} from './utils/bpmUtils';
 
 const loadDeckPanel = () => import('./components/DeckPanel');
 const loadMixerPanel = () => import('./components/MixerPanel');
@@ -88,6 +92,9 @@ import {
 import {
   AccessRequest,
   AuthorizedClient,
+  AutoDjPhase,
+  AutoDjSourceType,
+  AutoDjStatus,
   ChannelEqState,
   DeckId,
   DeckSource,
@@ -117,6 +124,8 @@ function createInitialDeck(id: DeckId): DeckState {
     currentTime: 0,
     duration: 0,
     pitchSemitones: 0,
+    playbackRate: 1,
+    syncedBpm: null,
     cuePoint: 0,
     stemMode: 'full',
     youtubeId: null,
@@ -200,9 +209,39 @@ export default function App() {
   const [accessRequest, setAccessRequest] = useState<AccessRequest | null>(null);
   const [showAdminDashboard, setShowAdminDashboard] = useState(false);
 
+  const [autoDjSource, setAutoDjSource] = useState<{
+    sourceType: AutoDjSourceType;
+    playlistId: string | null;
+    driveFolderId: string | null;
+    label: string;
+  }>({
+    sourceType: 'all-local',
+    playlistId: null,
+    driveFolderId: null,
+    label: 'Todas las pistas',
+  });
+  const [autoDjPhase, setAutoDjPhase] = useState<AutoDjPhase>('idle');
+  const [autoDjNextInfo, setAutoDjNextInfo] = useState<{
+    name: string | null;
+    bpm: number | null;
+    targetRate: number | null;
+    syncModeLabel: string | null;
+    mixInSec: number | null;
+  }>({
+    name: null,
+    bpm: null,
+    targetRate: null,
+    syncModeLabel: null,
+    mixInSec: null,
+  });
+
   const libraryRef = useRef<HTMLDivElement | null>(null);
   const autoMixTimerRef = useRef<number | null>(null);
+  const autoDjBeatTimerRef = useRef<number | null>(null);
+  const autoDjGlideTimerRef = useRef<number | null>(null);
   const autoTransitionDeckRef = useRef<DeckId | null>(null);
+  const autoDjPlayedIdsRef = useRef<Set<string>>(new Set());
+  const autoDjPreloadKeyRef = useRef<string | null>(null);
   const deckConsumedRef = useRef<Record<DeckId, boolean>>({ A: false, B: false });
   const hydratedUidRef = useRef<string | null>(null);
   const loggedEntryForUidRef = useRef<string | null>(null);
@@ -210,6 +249,14 @@ export default function App() {
   const driveReqSeqRef = useRef(0);
   const driveFoldersRef = useRef(driveFolders);
   driveFoldersRef.current = driveFolders;
+  const driveFilesRef = useRef(driveFiles);
+  driveFilesRef.current = driveFiles;
+  const driveSelectedFolderIdRef = useRef(driveSelectedFolderId);
+  driveSelectedFolderIdRef.current = driveSelectedFolderId;
+  const playlistsRef = useRef(playlists);
+  playlistsRef.current = playlists;
+  const autoDjSourceRef = useRef(autoDjSource);
+  autoDjSourceRef.current = autoDjSource;
   const tracksRef = useRef(tracks);
   tracksRef.current = tracks;
   const selectedPlaylistIdRef = useRef(selectedPlaylistId);
@@ -819,7 +866,9 @@ export default function App() {
       isPlaying: false,
       currentTime: 0,
       duration: readyTrack.durationSec,
-      cuePoint: 0,
+      playbackRate: 1,
+      syncedBpm: null,
+      cuePoint: readyTrack.introStartSec ?? 0,
       showLyricsOverlay: aiConfigRef.current.autoSyncLyrics && readyTrack.hasAiLyrics,
     }));
     if (mixerRef.current.autoMixEnabled) {
@@ -829,50 +878,138 @@ export default function App() {
     showToast(`Cargado en Deck ${deckId}: ${readyTrack.name}`);
   };
 
-  const getAutoMixPool = useCallback(
+  type AutoDjPoolEntry =
+    | { kind: 'local'; id: string; name: string; bpm: number | null; track: TrackItem }
+    | { kind: 'drive'; id: string; name: string; bpm: number | null; driveFile: DriveMusicFile };
+
+  const getAutoDjPool = useCallback(
     (
       referenceTrack?: TrackItem | null,
-      overridePlaylistId?: string | null,
+      overrideSource?: {
+        sourceType: AutoDjSourceType;
+        playlistId?: string | null;
+        driveFolderId?: string | null;
+      },
       overrideTracks?: TrackItem[]
-    ): TrackItem[] => {
+    ): AutoDjPoolEntry[] => {
+      const src = overrideSource ?? autoDjSourceRef.current;
+
+      if (src.sourceType === 'drive' && driveFilesRef.current.length > 0) {
+        return driveFilesRef.current.map((f) => ({
+          kind: 'drive' as const,
+          id: `drive-${f.id}`,
+          name: f.name,
+          bpm: extractBpmFromTrackName(f.name),
+          driveFile: f,
+        }));
+      }
+
       const allTracks = overrideTracks ?? tracksRef.current;
       const plId =
-        overridePlaylistId !== undefined
-          ? overridePlaylistId
+        src.sourceType === 'playlist'
+          ? src.playlistId ?? selectedPlaylistIdRef.current ?? referenceTrack?.playlistIds?.[0] ?? null
+          : src.sourceType === 'all-local'
+          ? null
           : selectedPlaylistIdRef.current ?? referenceTrack?.playlistIds?.[0] ?? null;
-      if (plId) {
-        const folderTracks = allTracks.filter((t) => t.playlistIds.includes(plId));
-        if (folderTracks.length > 0) return folderTracks;
-      }
-      return allTracks;
+
+      const filtered =
+        plId && allTracks.some((t) => t.playlistIds.includes(plId))
+          ? allTracks.filter((t) => t.playlistIds.includes(plId))
+          : allTracks;
+
+      return filtered.map((t) => ({
+        kind: 'local' as const,
+        id: t.id,
+        name: t.name,
+        bpm: t.bpm ?? extractBpmFromTrackName(t.name),
+        track: t,
+      }));
     },
     []
   );
 
-  const pickNextTrackFromPool = useCallback(
-    (pool: TrackItem[], currentTrack?: TrackItem | null): TrackItem | null => {
-      if (pool.length === 0) return null;
-      const currentIdx = currentTrack
-        ? pool.findIndex((t) => t.id === currentTrack.id)
-        : -1;
-      const nextIdx = (currentIdx + 1) % pool.length;
-      return pool[nextIdx] || null;
+  const resolveAutoDjEntryToTrack = useCallback(
+    async (entry: AutoDjPoolEntry): Promise<TrackItem | null> => {
+      if (entry.kind === 'local') {
+        const ready = await resolveTrackMediaUrl(entry.track);
+        const mediaUrl = ready.videoUrl || ready.audioUrl || '';
+        if (mediaUrl && (!ready.bpm || ready.introStartSec === undefined || ready.outroStartSec === undefined)) {
+          const analysis = await audioEngine.analyzeAudioUrl(mediaUrl);
+          if (analysis) {
+            const enriched: TrackItem = {
+              ...ready,
+              bpm: ready.bpm || analysis.detectedBpm,
+              introStartSec: ready.introStartSec ?? analysis.introStartSec,
+              outroStartSec: ready.outroStartSec ?? analysis.outroStartSec,
+              beatOffsetSec: ready.beatOffsetSec ?? analysis.beatOffsetSec,
+            };
+            setTracks((prev) => prev.map((t) => (t.id === enriched.id ? enriched : t)));
+            return enriched;
+          }
+        }
+        return ready;
+      }
+
+      const token = getDriveAccessToken();
+      if (!token) {
+        setNeedsDriveAuth(true);
+        return null;
+      }
+
+      try {
+        const { objectUrl, durationSec, isVideo } = await downloadDriveMediaObjectUrl(
+          token,
+          entry.driveFile
+        );
+        const parsedBpm = extractBpmFromTrackName(entry.driveFile.name);
+        const analysis = await audioEngine.analyzeAudioUrl(objectUrl);
+        return {
+          id: `drive-${entry.driveFile.id}`,
+          name: entry.driveFile.name,
+          bpm: parsedBpm ?? analysis?.detectedBpm ?? undefined,
+          durationSec,
+          sourceType: 'file',
+          audioUrl: isVideo ? undefined : objectUrl,
+          videoUrl: isVideo ? objectUrl : undefined,
+          isVideo,
+          playlistIds: [],
+          hasAiLyrics: false,
+          introStartSec: analysis?.introStartSec,
+          outroStartSec: analysis?.outroStartSec,
+          beatOffsetSec: analysis?.beatOffsetSec,
+        };
+      } catch (err: any) {
+        if (err instanceof DriveAuthError) {
+          clearDriveAccessToken();
+          setNeedsDriveAuth(true);
+        }
+        return null;
+      }
     },
-    []
+    [resolveTrackMediaUrl]
   );
 
   const loadPoolTrackToDeck = useCallback(
-    async (deckId: DeckId, track: TrackItem, autoPlay: boolean) => {
+    async (
+      deckId: DeckId,
+      track: TrackItem,
+      autoPlay: boolean,
+      syncRatio = 1,
+      syncedBpm: number | null = null
+    ) => {
       deckConsumedRef.current[deckId] = false;
       const ready = await resolveTrackMediaUrl(track);
+      const startCue = ready.introStartSec ?? 0;
       setDeck(deckId, (prev) => ({
         ...prev,
         source: 'local',
         track: ready,
         isPlaying: autoPlay,
-        currentTime: 0,
+        currentTime: startCue,
         duration: ready.durationSec,
-        cuePoint: 0,
+        playbackRate: syncRatio,
+        syncedBpm,
+        cuePoint: startCue,
         showLyricsOverlay: aiConfigRef.current.autoSyncLyrics && ready.hasAiLyrics,
       }));
     },
@@ -884,11 +1021,16 @@ export default function App() {
       activeDeckId: DeckId,
       activeTrack?: TrackItem | null,
       forceReplace = false,
-      overridePlaylistId?: string | null,
-      overrideTracks?: TrackItem[]
+      overrideSource?: {
+        sourceType: AutoDjSourceType;
+        playlistId?: string | null;
+        driveFolderId?: string | null;
+      },
+      overrideTargetBpm?: number | null
     ) => {
       const otherDeckId: DeckId = activeDeckId === 'A' ? 'B' : 'A';
       const otherDeck = otherDeckId === 'A' ? deckARef.current : deckBRef.current;
+      const activeDeck = activeDeckId === 'A' ? deckARef.current : deckBRef.current;
       if (!forceReplace && otherDeck.isPlaying) return;
 
       const isOtherEmptyOrDone =
@@ -898,13 +1040,125 @@ export default function App() {
 
       if (!isOtherEmptyOrDone) return;
 
-      const pool = getAutoMixPool(activeTrack, overridePlaylistId, overrideTracks);
-      const nextTrack = pickNextTrackFromPool(pool, activeTrack);
-      if (!nextTrack) return;
+      const pool = getAutoDjPool(activeTrack, overrideSource);
+      const activeEffectiveBpm =
+        overrideTargetBpm && overrideTargetBpm > 40
+          ? overrideTargetBpm
+          : activeTrack?.bpm
+          ? activeTrack.bpm * (activeDeck.playbackRate ?? 1)
+          : activeTrack?.name
+          ? extractBpmFromTrackName(activeTrack.name)
+          : null;
 
-      await loadPoolTrackToDeck(otherDeckId, nextTrack, false);
+      const pick = pickNextAutoDjCandidate(pool, {
+        currentId: activeTrack?.id || null,
+        excludeId: forceReplace ? otherDeck.track?.id || null : null,
+        outgoingBpm: activeEffectiveBpm,
+        playedIds: autoDjPlayedIdsRef.current,
+      });
+      if (!pick) return;
+
+      if (pick.resetCycle) {
+        autoDjPlayedIdsRef.current.clear();
+        if (activeTrack?.id) {
+          autoDjPlayedIdsRef.current.add(activeTrack.id);
+        }
+      }
+
+      const preloadKey = `${otherDeckId}:${pick.item.id}`;
+      if (autoDjPreloadKeyRef.current === preloadKey) return;
+      autoDjPreloadKeyRef.current = preloadKey;
+
+      setAutoDjNextInfo((prev) => ({
+        ...prev,
+        name: pick.item.name,
+        bpm: pick.sync.incomingBaseBpm || pick.item.bpm || null,
+        targetRate: pick.sync.ratio,
+        syncModeLabel: pick.sync.label,
+      }));
+
+      try {
+        const resolved = await resolveAutoDjEntryToTrack(pick.item);
+        if (!resolved) return;
+
+        // Re-check if the deck was touched while downloading
+        const latestOther = otherDeckId === 'A' ? deckARef.current : deckBRef.current;
+        if (latestOther.isPlaying && !forceReplace) return;
+
+        const refinedSync = computeTempoSync(
+          activeEffectiveBpm,
+          resolved.bpm ?? extractBpmFromTrackName(resolved.name)
+        );
+
+        // Reset standby deck EQ cleanly so it's ready for a club transition
+        setMixer((prev) => ({
+          ...prev,
+          [otherDeckId]: { high: 0, mid: 0, low: 0, filter: 0, volume: 1.0 },
+        }));
+
+        await loadPoolTrackToDeck(
+          otherDeckId,
+          resolved,
+          false,
+          refinedSync.ratio,
+          refinedSync.mode === 'fallback' ? null : refinedSync.targetBpm
+        );
+
+        setAutoDjNextInfo((prev) => ({
+          ...prev,
+          name: resolved.name,
+          bpm: resolved.bpm ?? refinedSync.incomingBaseBpm ?? null,
+          targetRate: refinedSync.ratio,
+          syncModeLabel: refinedSync.label,
+        }));
+      } finally {
+        if (autoDjPreloadKeyRef.current === preloadKey) {
+          autoDjPreloadKeyRef.current = null;
+        }
+      }
     },
-    [getAutoMixPool, loadPoolTrackToDeck, pickNextTrackFromPool]
+    [getAutoDjPool, loadPoolTrackToDeck, resolveAutoDjEntryToTrack]
+  );
+
+  const handleDeckTrackAnalysis = useCallback(
+    (
+      deckId: DeckId,
+      analysis: {
+        trackId: string;
+        detectedBpm: number;
+        introStartSec: number;
+        outroStartSec: number;
+        beatOffsetSec: number;
+      }
+    ) => {
+      setDeck(deckId, (prev) => {
+        if (!prev.track || prev.track.id !== analysis.trackId) return prev;
+        return {
+          ...prev,
+          track: {
+            ...prev.track,
+            bpm: prev.track.bpm || analysis.detectedBpm,
+            introStartSec: prev.track.introStartSec ?? analysis.introStartSec,
+            outroStartSec: prev.track.outroStartSec ?? analysis.outroStartSec,
+            beatOffsetSec: prev.track.beatOffsetSec ?? analysis.beatOffsetSec,
+          },
+        };
+      });
+      setTracks((prev) =>
+        prev.map((t) =>
+          t.id === analysis.trackId
+            ? {
+                ...t,
+                bpm: t.bpm || analysis.detectedBpm,
+                introStartSec: t.introStartSec ?? analysis.introStartSec,
+                outroStartSec: t.outroStartSec ?? analysis.outroStartSec,
+                beatOffsetSec: t.beatOffsetSec ?? analysis.beatOffsetSec,
+              }
+            : t
+        )
+      );
+    },
+    []
   );
 
   // Transport Controls
@@ -931,11 +1185,9 @@ export default function App() {
     setDeck(deckId, (prev) => {
       if (!prev.track) return prev;
       if (!prev.isPlaying) {
-        // Set new cue point at current position
         showToast(`Cue fijado en ${Math.floor(prev.currentTime)}s (Deck ${deckId})`);
         return { ...prev, cuePoint: prev.currentTime };
       }
-      // Jump back to cue point & pause
       return { ...prev, isPlaying: false, currentTime: prev.cuePoint };
     });
   };
@@ -944,78 +1196,294 @@ export default function App() {
     setDeck(deckId, (prev) => ({ ...prev, currentTime: timeSec }));
   };
 
+  const clearAutoDjTimers = useCallback(() => {
+    if (autoMixTimerRef.current) {
+      window.clearInterval(autoMixTimerRef.current);
+      autoMixTimerRef.current = null;
+    }
+    if (autoDjBeatTimerRef.current) {
+      window.clearTimeout(autoDjBeatTimerRef.current);
+      autoDjBeatTimerRef.current = null;
+    }
+    if (autoDjGlideTimerRef.current) {
+      window.clearInterval(autoDjGlideTimerRef.current);
+      autoDjGlideTimerRef.current = null;
+    }
+  }, []);
+
   const triggerAutoMixTransition = useCallback(
-    (fromDeckId: DeckId) => {
+    async (fromDeckId: DeckId, isManual = false) => {
       if (autoTransitionDeckRef.current === fromDeckId) return;
       const toDeckId: DeckId = fromDeckId === 'A' ? 'B' : 'A';
       const fromDeck = fromDeckId === 'A' ? deckARef.current : deckBRef.current;
-      const toDeck = toDeckId === 'A' ? deckARef.current : deckBRef.current;
+      let toDeck = toDeckId === 'A' ? deckARef.current : deckBRef.current;
 
-      const pool = getAutoMixPool(fromDeck.track);
+      const pool = getAutoDjPool(fromDeck.track);
+      const outBpmRaw = fromDeck.track?.bpm
+        ? fromDeck.track.bpm * (fromDeck.playbackRate ?? 1)
+        : fromDeck.track?.name
+        ? extractBpmFromTrackName(fromDeck.track.name)
+        : null;
+
       let nextTrackToLoad: TrackItem | null = null;
       const shouldLoadFromPool =
         (!toDeck.track && !toDeck.youtubeId) ||
         (toDeck.source === 'local' && deckConsumedRef.current[toDeckId] && pool.length > 0);
+
       if (shouldLoadFromPool && pool.length > 0) {
-        nextTrackToLoad = pickNextTrackFromPool(pool, fromDeck.track);
+        const pick = pickNextAutoDjCandidate(pool, {
+          currentId: fromDeck.track?.id || null,
+          outgoingBpm: outBpmRaw,
+          playedIds: autoDjPlayedIdsRef.current,
+        });
+        if (pick) {
+          nextTrackToLoad = await resolveAutoDjEntryToTrack(pick.item);
+        }
       }
 
-      if (!toDeck.track && !toDeck.youtubeId && !nextTrackToLoad) {
+      toDeck = toDeckId === 'A' ? deckARef.current : deckBRef.current;
+      const incomingTrack = nextTrackToLoad || toDeck.track;
+
+      if (!incomingTrack && !toDeck.youtubeId) {
         return; // Nothing to transition to
       }
 
       autoTransitionDeckRef.current = fromDeckId;
       deckConsumedRef.current[fromDeckId] = true;
       deckConsumedRef.current[toDeckId] = false;
+      if (fromDeck.track?.id) {
+        autoDjPlayedIdsRef.current.add(fromDeck.track.id);
+      }
       audioEngine.resume();
+      clearAutoDjTimers();
 
-      const activeTargetTrack = nextTrackToLoad || toDeck.track;
+      // Calculate exact BPM beatmatching ratio (key-locked via preservesPitch=true)
+      const inBpm =
+        incomingTrack?.bpm ??
+        (incomingTrack?.name ? extractBpmFromTrackName(incomingTrack.name) : null);
+      const sync = computeTempoSync(outBpmRaw, inBpm);
 
-      if (nextTrackToLoad) {
-        loadPoolTrackToDeck(toDeckId, nextTrackToLoad, true);
-      } else {
-        setDeck(toDeckId, (prev) => ({ ...prev, isPlaying: true }));
+      setAutoDjPhase('cueing');
+      setAutoDjNextInfo({
+        name: incomingTrack?.name || toDeck.youtubeTitle || null,
+        bpm: inBpm || null,
+        targetRate: sync.ratio,
+        syncModeLabel: sync.label,
+        mixInSec: 0,
+      });
+
+      const inIntroCue = incomingTrack?.introStartSec ?? 0;
+      const startInAtSec =
+        toDeck.currentTime > inIntroCue + 2 && !nextTrackToLoad
+          ? toDeck.currentTime
+          : inIntroCue;
+
+      // Cue incoming deck with Bass cut (-20 dB) + subtle HPF (+0.30) so floor energy never muddies or dips
+      const startFromEq = mixerRef.current[fromDeckId];
+      setMixer((prev) => ({
+        ...prev,
+        [fromDeckId]: {
+          ...startFromEq,
+          volume: Math.max(0.95, startFromEq.volume || 1),
+        },
+        [toDeckId]: {
+          high: 0,
+          mid: -1.5,
+          low: -20,
+          filter: 0.3,
+          volume: 1.0,
+        },
+      }));
+
+      // Beat-phase alignment wait (snap incoming attack to outgoing downbeat grid)
+      let beatWaitMs = 0;
+      if (fromDeck.isPlaying && outBpmRaw && outBpmRaw > 40) {
+        const beatSec = 60 / outBpmRaw;
+        const offset = fromDeck.track?.beatOffsetSec ?? fromDeck.track?.introStartSec ?? 0;
+        const phase = (((fromDeck.currentTime - offset) % beatSec) + beatSec) % beatSec;
+        const rawWait = ((beatSec - phase) % beatSec) * 1000;
+        beatWaitMs = isManual ? Math.min(180, rawWait) : Math.min(620, rawWait);
       }
 
-      showToast(`AutoMix: pasando a Deck ${toDeckId}`);
-
-      if (autoMixTimerRef.current) {
-        window.clearInterval(autoMixTimerRef.current);
-      }
-
-      const targetSide = toDeckId === 'B' ? 1 : -1;
-      const startVal = mixerRef.current.crossfader;
-      const steps = 45;
-      let step = 0;
-
-      autoMixTimerRef.current = window.setInterval(() => {
-        step++;
-        const t = step / steps;
-        const val = startVal + (targetSide - startVal) * t;
-        setMixer((prev) => ({
-          ...prev,
-          crossfader: Number(val.toFixed(2)),
-        }));
-        if (step >= steps) {
-          if (autoMixTimerRef.current) {
-            window.clearInterval(autoMixTimerRef.current);
-            autoMixTimerRef.current = null;
-          }
-          setDeck(fromDeckId, (prev) => ({ ...prev, isPlaying: false, currentTime: 0 }));
-          autoTransitionDeckRef.current = null;
-
-          // Auto-load the next song from the active folder onto the now-idle opposite deck
-          if (mixerRef.current.autoMixEnabled && activeTargetTrack) {
-            ensureOppositeDeckQueued(toDeckId, activeTargetTrack, true);
-          }
+      const startBlendLoop = () => {
+        if (nextTrackToLoad) {
+          loadPoolTrackToDeck(
+            toDeckId,
+            nextTrackToLoad,
+            true,
+            sync.ratio,
+            sync.mode === 'fallback' ? null : sync.targetBpm
+          );
+        } else {
+          setDeck(toDeckId, (prev) => ({
+            ...prev,
+            isPlaying: true,
+            currentTime: startInAtSec,
+            playbackRate: sync.ratio,
+            syncedBpm: sync.mode === 'fallback' ? null : sync.targetBpm,
+          }));
         }
-      }, 75);
+        audioEngine.setDeckPlaybackRate(toDeckId, sync.ratio, true);
+
+        showToast(
+          `Auto DJ: ${sync.label} · Bass Swap → Deck ${toDeckId}`
+        );
+
+        const targetSide = toDeckId === 'B' ? 1 : -1;
+        const startXf = mixerRef.current.crossfader;
+        const fromDur = fromDeck.duration || fromDeck.track?.durationSec || 180;
+        const remainingFrom = Math.max(2.5, fromDur - fromDeck.currentTime);
+        const targetMixMs =
+          fromDur < 45
+            ? Math.max(2800, Math.min(4800, remainingFrom * 750))
+            : Math.max(5500, Math.min(9800, remainingFrom * 820));
+        const tickMs = 45;
+        const totalSteps = Math.max(24, Math.round(targetMixMs / tickMs));
+        let step = 0;
+
+        setAutoDjPhase('blending');
+
+        autoMixTimerRef.current = window.setInterval(() => {
+          step++;
+          const t = Math.min(1, step / totalSteps);
+          // Smooth equal-energy S-curve for crossfader
+          const smoothT = t * t * (3 - 2 * t);
+          const xf = startXf + (targetSide - startXf) * smoothT;
+
+          let outLow = startFromEq.low;
+          let outMid = startFromEq.mid;
+          let outFilter = startFromEq.filter;
+          let inLow = -20;
+          let inMid = -1.5;
+          let inFilter = 0.3;
+
+          if (t < 0.35) {
+            setAutoDjPhase('blending');
+          } else if (t <= 0.68) {
+            setAutoDjPhase('bass-swap');
+            const s = (t - 0.35) / 0.33;
+            inLow = Number((-20 + 20 * s).toFixed(1));
+            outLow = Number((0 - 20 * s).toFixed(1));
+            inMid = Number((-1.5 + 1.5 * s).toFixed(1));
+            inFilter = Number((0.3 * (1 - s)).toFixed(2));
+          } else {
+            setAutoDjPhase('gliding');
+            const sExit = (t - 0.68) / 0.32;
+            inLow = 0;
+            inMid = 0;
+            inFilter = 0;
+            outLow = -20;
+            outMid = Number((-4 * sExit).toFixed(1));
+            outFilter = Number((0.42 * sExit).toFixed(2));
+
+            // Begin gentle tempo glide back toward 1.00 during the tail of the blend
+            const glideRate = sync.ratio + (1 - sync.ratio) * (sExit * 0.45);
+            audioEngine.setDeckPlaybackRate(toDeckId, glideRate, true);
+          }
+
+          setMixer((prev) => ({
+            ...prev,
+            crossfader: Number(xf.toFixed(3)),
+            [fromDeckId]: {
+              ...prev[fromDeckId],
+              low: outLow,
+              mid: outMid,
+              filter: outFilter,
+            },
+            [toDeckId]: {
+              ...prev[toDeckId],
+              high: 0,
+              mid: inMid,
+              low: inLow,
+              filter: inFilter,
+              volume: 1.0,
+            },
+          }));
+
+          if (step >= totalSteps) {
+            if (autoMixTimerRef.current) {
+              window.clearInterval(autoMixTimerRef.current);
+              autoMixTimerRef.current = null;
+            }
+
+            // Stop outgoing track & restore clean neutral EQ on both channels
+            setDeck(fromDeckId, (prev) => ({
+              ...prev,
+              isPlaying: false,
+              currentTime: 0,
+              playbackRate: 1,
+              syncedBpm: null,
+            }));
+            audioEngine.setDeckPlaybackRate(fromDeckId, 1, true);
+
+            setMixer((prev) => ({
+              ...prev,
+              crossfader: targetSide,
+              [fromDeckId]: { high: 0, mid: 0, low: 0, filter: 0, volume: 1.0 },
+              [toDeckId]: { high: 0, mid: 0, low: 0, filter: 0, volume: 1.0 },
+            }));
+
+            autoTransitionDeckRef.current = null;
+
+            // Finish gliding incoming playbackRate smoothly back to 1.00 (studio tempo)
+            const currentRate = sync.ratio + (1 - sync.ratio) * 0.45;
+            if (Math.abs(currentRate - 1) > 0.005) {
+              let gStep = 0;
+              const gSteps = 30;
+              autoDjGlideTimerRef.current = window.setInterval(() => {
+                gStep++;
+                const gt = gStep / gSteps;
+                const nextRate = currentRate + (1 - currentRate) * gt;
+                audioEngine.setDeckPlaybackRate(toDeckId, nextRate, true);
+                setDeck(toDeckId, (prev) => ({
+                  ...prev,
+                  playbackRate: Number(nextRate.toFixed(3)),
+                  syncedBpm:
+                    gt >= 1 || !prev.track?.bpm
+                      ? null
+                      : Math.round(prev.track.bpm * nextRate),
+                }));
+                if (gStep >= gSteps) {
+                  if (autoDjGlideTimerRef.current) {
+                    window.clearInterval(autoDjGlideTimerRef.current);
+                    autoDjGlideTimerRef.current = null;
+                  }
+                  setAutoDjPhase(mixerRef.current.autoMixEnabled ? 'standby' : 'idle');
+                }
+              }, 80);
+            } else {
+              setDeck(toDeckId, (prev) => ({
+                ...prev,
+                playbackRate: 1,
+                syncedBpm: null,
+              }));
+              audioEngine.setDeckPlaybackRate(toDeckId, 1, true);
+              setAutoDjPhase(mixerRef.current.autoMixEnabled ? 'standby' : 'idle');
+            }
+
+            // Pre-load & analyze next compatible track from the designated folder onto idle deck
+            if (mixerRef.current.autoMixEnabled && incomingTrack) {
+              const steadyBpm =
+                incomingTrack.bpm ??
+                (incomingTrack.name ? extractBpmFromTrackName(incomingTrack.name) : null);
+              ensureOppositeDeckQueued(toDeckId, incomingTrack, true, undefined, steadyBpm);
+            }
+          }
+        }, tickMs);
+      };
+
+      if (beatWaitMs > 15) {
+        autoDjBeatTimerRef.current = window.setTimeout(startBlendLoop, beatWaitMs);
+      } else {
+        startBlendLoop();
+      }
     },
     [
+      clearAutoDjTimers,
       ensureOppositeDeckQueued,
-      getAutoMixPool,
+      getAutoDjPool,
       loadPoolTrackToDeck,
-      pickNextTrackFromPool,
+      resolveAutoDjEntryToTrack,
       showToast,
     ]
   );
@@ -1028,21 +1496,43 @@ export default function App() {
     }));
 
     const activeDeck = deckId === 'A' ? deckARef.current : deckBRef.current;
+    if (!mixerRef.current.autoMixEnabled || !activeDeck.isPlaying || duration <= 5) {
+      return;
+    }
+
+    const rate = activeDeck.playbackRate ?? 1;
+    const realRemaining = (duration - currentTime) / Math.max(0.5, rate);
+    const outroSec = activeDeck.track?.outroStartSec;
+    const triggerAtSec =
+      outroSec && outroSec > 6 && outroSec < duration - 2.5
+        ? outroSec
+        : Math.max(4, duration - Math.min(13, Math.max(4.5, duration * 0.32)));
+
+    // Keep live countdown to mix
+    const mixInSec = Math.max(0, Math.round((triggerAtSec - currentTime) / Math.max(0.5, rate)));
+    if (autoTransitionDeckRef.current === null) {
+      setAutoDjNextInfo((prev) =>
+        prev.mixInSec === mixInSec ? prev : { ...prev, mixInSec }
+      );
+    }
+
+    // Proactively ensure opposite deck is pre-loaded & analyzed before mix point
+    if (realRemaining <= 24 && autoTransitionDeckRef.current !== deckId) {
+      ensureOppositeDeckQueued(deckId, activeDeck.track, false);
+    }
+
     if (
-      mixerRef.current.autoMixEnabled &&
-      activeDeck.isPlaying &&
-      duration > 8 &&
-      duration - currentTime <= 5 &&
+      currentTime >= triggerAtSec &&
       autoTransitionDeckRef.current !== deckId
     ) {
-      triggerAutoMixTransition(deckId);
+      triggerAutoMixTransition(deckId, false);
     }
   };
 
   const handleEnded = (deckId: DeckId) => {
     setDeck(deckId, (prev) => ({ ...prev, isPlaying: false, currentTime: 0 }));
     if (mixerRef.current.autoMixEnabled && autoTransitionDeckRef.current !== deckId) {
-      triggerAutoMixTransition(deckId);
+      triggerAutoMixTransition(deckId, false);
     }
   };
 
@@ -1105,7 +1595,7 @@ export default function App() {
     }
   };
 
-  // Mixer & Auto-Mix
+  // Mixer & Auto DJ Session
   const handleChangeChannel = (deckId: DeckId, patch: Partial<ChannelEqState>) => {
     audioEngine.resume();
     setMixer((prev) => ({
@@ -1114,50 +1604,152 @@ export default function App() {
     }));
   };
 
-  const handleToggleAutoMix = () => {
-    audioEngine.resume();
-    const nextEnabled = !mixerRef.current.autoMixEnabled;
+  const startOrEnableAutoDj = useCallback(
+    async (explicitSource?: {
+      sourceType: AutoDjSourceType;
+      playlistId?: string | null;
+      driveFolderId?: string | null;
+      label: string;
+    }) => {
+      audioEngine.resume();
+      const chosenSource = explicitSource
+        ? {
+            sourceType: explicitSource.sourceType,
+            playlistId: explicitSource.playlistId ?? null,
+            driveFolderId: explicitSource.driveFolderId ?? null,
+            label: explicitSource.label,
+          }
+        : selectedPlaylistIdRef.current
+        ? {
+            sourceType: 'playlist' as const,
+            playlistId: selectedPlaylistIdRef.current,
+            driveFolderId: null,
+            label:
+              playlistsRef.current.find((p) => p.id === selectedPlaylistIdRef.current)?.name ||
+              'Carpeta',
+          }
+        : {
+            sourceType: 'all-local' as const,
+            playlistId: null,
+            driveFolderId: null,
+            label: 'Todas las pistas',
+          };
 
-    if (!nextEnabled && autoMixTimerRef.current) {
-      window.clearInterval(autoMixTimerRef.current);
-      autoMixTimerRef.current = null;
-      autoTransitionDeckRef.current = null;
-    }
+      setAutoDjSource(chosenSource);
+      autoDjSourceRef.current = chosenSource;
+      autoDjPlayedIdsRef.current.clear();
+      setAutoDjPhase('standby');
 
-    const dA = deckARef.current;
-    const dB = deckBRef.current;
-    const bothEmpty =
-      !dA.track && !dA.youtubeId && !dB.track && !dB.youtubeId;
-    const pool = getAutoMixPool(dA.track || dB.track);
+      const dA = deckARef.current;
+      const dB = deckBRef.current;
+      const bothEmpty = !dA.track && !dA.youtubeId && !dB.track && !dB.youtubeId;
+      const pool = getAutoDjPool(dA.track || dB.track, chosenSource);
 
-    setMixer((prev) => ({
-      ...prev,
-      autoMixEnabled: nextEnabled,
-      ...(nextEnabled && bothEmpty && pool.length > 0 ? { crossfader: -1 } : {}),
-    }));
+      if (pool.length === 0) {
+        showToast(`No hay canciones en "${chosenSource.label}" para iniciar Auto DJ`);
+        return;
+      }
 
-    if (nextEnabled) {
-      if (dA.isPlaying && dA.source === 'local') {
-        ensureOppositeDeckQueued('A', dA.track, false);
-      } else if (dB.isPlaying && dB.source === 'local') {
-        ensureOppositeDeckQueued('B', dB.track, false);
-      } else if (dA.track && !dB.track && !dB.youtubeId) {
-        ensureOppositeDeckQueued('A', dA.track, false);
-      } else if (dB.track && !dA.track && !dA.youtubeId) {
-        ensureOppositeDeckQueued('B', dB.track, false);
-      } else if (bothEmpty && pool.length > 0) {
-        loadPoolTrackToDeck('A', pool[0], true);
-        if (pool.length > 1) {
-          loadPoolTrackToDeck('B', pool[1], false);
+      setMixer((prev) => ({
+        ...prev,
+        autoMixEnabled: true,
+        ...(bothEmpty || explicitSource ? { crossfader: dB.isPlaying && !dA.isPlaying ? 1 : -1 } : {}),
+      }));
+
+      if (explicitSource && !dA.isPlaying && !dB.isPlaying) {
+        // Fresh folder DJ session: load track 1 into Deck A, start playing, pre-queue best BPM match into Deck B
+        const firstEntry = pool[0];
+        const firstTrack = await resolveAutoDjEntryToTrack(firstEntry);
+        if (firstTrack) {
+          autoDjPlayedIdsRef.current.add(firstTrack.id);
+          setMixer((prev) => ({
+            ...prev,
+            crossfader: -1,
+            A: { high: 0, mid: 0, low: 0, filter: 0, volume: 1.0 },
+          }));
+          await loadPoolTrackToDeck('A', firstTrack, true, 1, null);
+          await ensureOppositeDeckQueued('A', firstTrack, true, chosenSource);
+          showToast(`Auto DJ iniciado en "${chosenSource.label}": adaptando BPM y mezclas`);
+          return;
         }
       }
-    }
 
-    showToast(
-      nextEnabled
-        ? 'AutoMix activado: leerá y cargará la siguiente canción de la carpeta automáticamente'
-        : 'AutoMix desactivado'
-    );
+      if (dA.isPlaying && dA.source === 'local') {
+        if (dA.track?.id) autoDjPlayedIdsRef.current.add(dA.track.id);
+        await ensureOppositeDeckQueued('A', dA.track, Boolean(explicitSource), chosenSource);
+      } else if (dB.isPlaying && dB.source === 'local') {
+        if (dB.track?.id) autoDjPlayedIdsRef.current.add(dB.track.id);
+        await ensureOppositeDeckQueued('B', dB.track, Boolean(explicitSource), chosenSource);
+      } else if (dA.track && !dB.track && !dB.youtubeId) {
+        await ensureOppositeDeckQueued('A', dA.track, Boolean(explicitSource), chosenSource);
+      } else if (dB.track && !dA.track && !dA.youtubeId) {
+        await ensureOppositeDeckQueued('B', dB.track, Boolean(explicitSource), chosenSource);
+      } else if (bothEmpty) {
+        const firstTrack = await resolveAutoDjEntryToTrack(pool[0]);
+        if (firstTrack) {
+          autoDjPlayedIdsRef.current.add(firstTrack.id);
+          await loadPoolTrackToDeck('A', firstTrack, true, 1, null);
+          await ensureOppositeDeckQueued('A', firstTrack, true, chosenSource);
+        }
+      }
+
+      showToast(`Auto DJ ON (${chosenSource.label}): beatmatch y Bass-Swap en automático`);
+    },
+    [
+      ensureOppositeDeckQueued,
+      getAutoDjPool,
+      loadPoolTrackToDeck,
+      resolveAutoDjEntryToTrack,
+      showToast,
+    ]
+  );
+
+  const stopAutoDj = useCallback(() => {
+    clearAutoDjTimers();
+    autoTransitionDeckRef.current = null;
+    autoDjPreloadKeyRef.current = null;
+    setAutoDjPhase('idle');
+    setAutoDjNextInfo({
+      name: null,
+      bpm: null,
+      targetRate: null,
+      syncModeLabel: null,
+      mixInSec: null,
+    });
+    setMixer((prev) => ({
+      ...prev,
+      autoMixEnabled: false,
+    }));
+    showToast('Auto DJ detenido');
+  }, [clearAutoDjTimers, showToast]);
+
+  const handleToggleAutoMix = () => {
+    if (mixerRef.current.autoMixEnabled) {
+      stopAutoDj();
+    } else {
+      startOrEnableAutoDj();
+    }
+  };
+
+  const handleSkipAutoDjNext = () => {
+    const dA = deckARef.current;
+    const dB = deckBRef.current;
+    const activeDeckId: DeckId =
+      dA.isPlaying && !dB.isPlaying
+        ? 'A'
+        : dB.isPlaying && !dA.isPlaying
+        ? 'B'
+        : mixerRef.current.crossfader <= 0
+        ? 'A'
+        : 'B';
+    const activeDeck = activeDeckId === 'A' ? dA : dB;
+    const otherDeckId: DeckId = activeDeckId === 'A' ? 'B' : 'A';
+    const otherDeck = otherDeckId === 'A' ? dA : dB;
+    if (otherDeck.track?.id) {
+      autoDjPlayedIdsRef.current.add(otherDeck.track.id);
+    }
+    ensureOppositeDeckQueued(activeDeckId, activeDeck.track, true);
+    showToast('Buscando otra pista compatible en la carpeta...');
   };
 
   const handleManualCrossfadeNow = () => {
@@ -1171,7 +1763,7 @@ export default function App() {
         : mixerRef.current.crossfader <= 0 && (dA.track || dA.youtubeId)
         ? 'A'
         : 'B';
-    triggerAutoMixTransition(fromDeckId);
+    triggerAutoMixTransition(fromDeckId, true);
   };
 
   // File, Folder & .djlurivera Import (batched IndexedDB + parallel metadata)
@@ -1292,32 +1884,55 @@ export default function App() {
       tracksRef.current = nextTracks;
       setTracks(nextTracks);
 
-      // If AutoMix is active when uploading a folder/tracks, auto-start & queue Deck A / B
+      // If Auto DJ is active when uploading a folder/tracks, auto-start & queue Deck A / B by BPM
       if (mixerRef.current.autoMixEnabled && addedTracks.length > 0) {
+        const uploadedFolderLabel =
+          createdPlaylists[0]?.name ||
+          playlistsRef.current.find((p) => p.id === activeImportedPlaylistId)?.name ||
+          'Todas las pistas';
+        const nextSrc = activeImportedPlaylistId
+          ? {
+              sourceType: 'playlist' as const,
+              playlistId: activeImportedPlaylistId,
+              driveFolderId: null,
+              label: uploadedFolderLabel,
+            }
+          : autoDjSourceRef.current;
+        if (activeImportedPlaylistId) {
+          setAutoDjSource(nextSrc);
+          autoDjSourceRef.current = nextSrc;
+          autoDjPlayedIdsRef.current.clear();
+        }
+
         const dA = deckARef.current;
         const dB = deckBRef.current;
 
         if (!dA.isPlaying && !dB.isPlaying) {
           audioEngine.resume();
-          setMixer((prev) => ({ ...prev, crossfader: -1 }));
-          await loadPoolTrackToDeck('A', addedTracks[0], true);
+          setMixer((prev) => ({
+            ...prev,
+            crossfader: -1,
+            A: { high: 0, mid: 0, low: 0, filter: 0, volume: 1.0 },
+          }));
+          autoDjPlayedIdsRef.current.add(addedTracks[0].id);
+          await loadPoolTrackToDeck('A', addedTracks[0], true, 1, null);
           if (addedTracks.length > 1) {
-            await loadPoolTrackToDeck('B', addedTracks[1], false);
+            await ensureOppositeDeckQueued('A', addedTracks[0], true, nextSrc);
             showToast(
-              `AutoMix activo: "${addedTracks[0].name}" en Deck A y siguiente en Deck B`
+              `Auto DJ activo: "${addedTracks[0].name}" en Deck A y siguiente por BPM en Deck B`
             );
           } else {
-            showToast(`AutoMix activo: reproduciendo "${addedTracks[0].name}" en Deck A`);
+            showToast(`Auto DJ activo: reproduciendo "${addedTracks[0].name}" en Deck A`);
           }
         } else if (dA.isPlaying && !dB.isPlaying) {
-          await loadPoolTrackToDeck('B', addedTracks[0], false);
+          await ensureOppositeDeckQueued('A', dA.track, true, nextSrc);
           showToast(
-            `Carpeta lista: "${addedTracks[0].name}" cargada en Deck B para AutoMix`
+            `Carpeta lista: tema compatible en Deck B para Auto DJ`
           );
         } else if (dB.isPlaying && !dA.isPlaying) {
-          await loadPoolTrackToDeck('A', addedTracks[0], false);
+          await ensureOppositeDeckQueued('B', dB.track, true, nextSrc);
           showToast(
-            `Carpeta lista: "${addedTracks[0].name}" cargada en Deck A para AutoMix`
+            `Carpeta lista: tema compatible en Deck A para Auto DJ`
           );
         } else {
           showToast(`${addedTracks.length} pista(s) guardada(s) en la carpeta`);
@@ -1680,9 +2295,14 @@ export default function App() {
         isPlaying: false,
         currentTime: 0,
         duration: durationSec,
+        playbackRate: 1,
+        syncedBpm: null,
         cuePoint: 0,
         showLyricsOverlay: false,
       }));
+      if (mixerRef.current.autoMixEnabled) {
+        ensureOppositeDeckQueued(deckId, track, false);
+      }
       setMobileActiveDeck(deckId);
       showToast(`Listo en Deck ${deckId}: ${file.name} (pulsa Play)`);
     } catch (err: any) {
@@ -1996,6 +2616,23 @@ export default function App() {
     deckB.track?.bpm ||
     100;
 
+  const autoDjPoolSize = getAutoDjPool(deckA.track || deckB.track).length;
+  const autoDjStatus: AutoDjStatus = {
+    enabled: mixer.autoMixEnabled,
+    sourceType: autoDjSource.sourceType,
+    playlistId: autoDjSource.playlistId,
+    driveFolderId: autoDjSource.driveFolderId,
+    sourceLabel: autoDjSource.label,
+    phase: mixer.autoMixEnabled ? autoDjPhase : 'idle',
+    nextTrackName: autoDjNextInfo.name,
+    nextTrackBpm: autoDjNextInfo.bpm,
+    targetRate: autoDjNextInfo.targetRate,
+    syncModeLabel: autoDjNextInfo.syncModeLabel,
+    mixInSec: autoDjNextInfo.mixInSec,
+    playedCount: autoDjPlayedIdsRef.current.size,
+    totalCount: autoDjPoolSize,
+  };
+
   const lyricsModalTrack = tracks.find((t) => t.id === lyricsModalTrackId) || null;
 
   return (
@@ -2198,6 +2835,7 @@ export default function App() {
                   p.track && !p.track.bpm ? { ...p, track: { ...p.track, bpm } } : p
                 )
               }
+              onTrackAnalysis={(analysis) => handleDeckTrackAnalysis('A', analysis)}
             />
           </div>
 
@@ -2210,6 +2848,7 @@ export default function App() {
           >
             <MixerPanel
               mixer={mixer}
+              autoDjStatus={autoDjStatus}
               onChangeChannel={handleChangeChannel}
               onChangeCrossfader={(val) =>
                 setMixer((prev) => ({ ...prev, crossfader: val }))
@@ -2284,6 +2923,7 @@ export default function App() {
                   p.track && !p.track.bpm ? { ...p, track: { ...p.track, bpm } } : p
                 )
               }
+              onTrackAnalysis={(analysis) => handleDeckTrackAnalysis('B', analysis)}
             />
           </div>
         </section>
@@ -2375,6 +3015,11 @@ export default function App() {
               onOpenAiLyrics={(track) => setLyricsModalTrackId(track.id)}
               onOpenStemModal={() => setShowStemModal(true)}
               onExportTrackOrShow={handleExportTrackOrShow}
+              autoDjStatus={autoDjStatus}
+              onStartAutoDjSession={startOrEnableAutoDj}
+              onStopAutoDj={stopAutoDj}
+              onManualCrossfadeNow={handleManualCrossfadeNow}
+              onSkipAutoDjNext={handleSkipAutoDjNext}
               ytResults={ytResults}
               ytLoading={ytLoading}
               ytError={ytError}

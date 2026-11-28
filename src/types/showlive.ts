@@ -43,6 +43,9 @@ export interface TrackItem {
   playlistIds: string[];
   hasAiLyrics: boolean;
   lyrics?: LyricLine[];
+  introStartSec?: number;
+  outroStartSec?: number;
+  beatOffsetSec?: number;
   demoPreset?: {
     bpm: number;
     rootMidi: number;
@@ -63,12 +66,39 @@ export interface DeckState {
   currentTime: number;
   duration: number;
   pitchSemitones: number; // -12 to +12
+  playbackRate?: number; // 0.85 to 1.18 (tempo beatmatch without pitch change)
+  syncedBpm?: number | null; // Effective BPM when tempo-adapted
   cuePoint: number;
   stemMode: StemMode;
   youtubeId: string | null;
   youtubeTitle: string | null;
   isExpanded: boolean;
   showLyricsOverlay: boolean;
+}
+
+export type AutoDjSourceType = 'all-local' | 'playlist' | 'drive';
+export type AutoDjPhase =
+  | 'idle'
+  | 'standby'
+  | 'cueing'
+  | 'blending'
+  | 'bass-swap'
+  | 'gliding';
+
+export interface AutoDjStatus {
+  enabled: boolean;
+  sourceType: AutoDjSourceType;
+  playlistId: string | null;
+  driveFolderId: string | null;
+  sourceLabel: string;
+  phase: AutoDjPhase;
+  nextTrackName: string | null;
+  nextTrackBpm: number | null;
+  targetRate: number | null;
+  syncModeLabel: string | null;
+  mixInSec: number | null;
+  playedCount: number;
+  totalCount: number;
 }
 
 export interface ChannelEqState {

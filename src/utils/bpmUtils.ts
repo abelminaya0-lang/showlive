@@ -176,3 +176,173 @@ export function buildDriveTrackList(
 
   return enriched;
 }
+
+export interface TempoSyncResult {
+  compatible: boolean;
+  ratio: number; // playbackRate applied to incoming track (0.85..1.18)
+  targetBpm: number;
+  incomingBaseBpm: number;
+  effectiveIncomingBpm: number;
+  mode: 'exact' | 'direct' | 'double' | 'half' | 'fallback';
+  pctDiff: number;
+  label: string;
+}
+
+/**
+ * Computes the playbackRate ratio needed to beatmatch `incomingBpm` to `outgoingBpm`.
+ * Supports direct 1:1 matching as well as half-time / double-time (2x / 0.5x) DJ transitions.
+ */
+export function computeTempoSync(
+  outgoingBpm: number | null | undefined,
+  incomingBpm: number | null | undefined
+): TempoSyncResult {
+  const out = outgoingBpm && outgoingBpm > 40 ? outgoingBpm : 0;
+  const inc = incomingBpm && incomingBpm > 40 ? incomingBpm : 0;
+
+  if (!out || !inc) {
+    return {
+      compatible: true,
+      ratio: 1,
+      targetBpm: out || inc || 100,
+      incomingBaseBpm: inc || out || 100,
+      effectiveIncomingBpm: inc || out || 100,
+      mode: 'fallback',
+      pctDiff: 0,
+      label: inc ? `${Math.round(inc)} BPM` : 'AUTO SYNC',
+    };
+  }
+
+  const candidates: Array<{
+    effBpm: number;
+    ratio: number;
+    mode: 'exact' | 'direct' | 'double' | 'half';
+    penalty: number;
+  }> = [
+    { effBpm: inc, ratio: out / inc, mode: Math.abs(out - inc) < 0.5 ? 'exact' : 'direct', penalty: 0 },
+    { effBpm: inc * 2, ratio: out / (inc * 2), mode: 'double', penalty: 0.04 },
+    { effBpm: inc * 0.5, ratio: out / (inc * 0.5), mode: 'half', penalty: 0.04 },
+  ];
+
+  let best = candidates[0];
+  let bestScore = Number.POSITIVE_INFINITY;
+  for (const c of candidates) {
+    const score = Math.abs(1 - c.ratio) + c.penalty;
+    if (score < bestScore) {
+      bestScore = score;
+      best = c;
+    }
+  }
+
+  const compatible = best.ratio >= 0.84 && best.ratio <= 1.18;
+  const clampedRatio = Number(Math.max(0.85, Math.min(1.18, best.ratio)).toFixed(3));
+  const pctDiff = Math.round((clampedRatio - 1) * 1000) / 10;
+  const pctText =
+    pctDiff === 0 ? '0%' : `${pctDiff > 0 ? '+' : ''}${pctDiff.toFixed(1)}%`;
+
+  const label =
+    best.mode === 'exact'
+      ? `${Math.round(inc)} BPM (Exacto)`
+      : best.mode === 'double'
+      ? `${Math.round(inc)}×2 → ${Math.round(out)} BPM (${pctText})`
+      : best.mode === 'half'
+      ? `${Math.round(inc)}÷2 → ${Math.round(out)} BPM (${pctText})`
+      : `${Math.round(inc)} → ${Math.round(out)} BPM (${pctText})`;
+
+  return {
+    compatible,
+    ratio: clampedRatio,
+    targetBpm: Math.round(out),
+    incomingBaseBpm: Math.round(inc),
+    effectiveIncomingBpm: Math.round(best.effBpm),
+    mode: best.mode,
+    pctDiff,
+    label,
+  };
+}
+
+export interface AutoDjCandidateLike {
+  id: string;
+  name: string;
+  bpm?: number | null;
+}
+
+/**
+ * Picks the smartest next song from a folder for Auto DJ:
+ * avoids repeats until the whole folder has played, and picks the closest
+ * beatmatch-compatible BPM so transitions sound seamless like a real club DJ.
+ */
+export function pickNextAutoDjCandidate<T extends AutoDjCandidateLike>(
+  pool: T[],
+  options: {
+    currentId?: string | null;
+    excludeId?: string | null;
+    outgoingBpm?: number | null;
+    playedIds?: Set<string>;
+  }
+): { item: T; sync: TempoSyncResult; resetCycle: boolean } | null {
+  if (!pool || pool.length === 0) return null;
+
+  const { currentId, excludeId, outgoingBpm, playedIds } = options;
+
+  let unplayed = pool.filter(
+    (item) =>
+      item.id !== currentId &&
+      item.id !== excludeId &&
+      !(playedIds && playedIds.has(item.id))
+  );
+
+  let resetCycle = false;
+  if (unplayed.length === 0) {
+    resetCycle = true;
+    unplayed = pool.filter((item) => item.id !== currentId && item.id !== excludeId);
+    if (unplayed.length === 0) {
+      unplayed = pool.filter((item) => item.id !== currentId);
+    }
+    if (unplayed.length === 0) {
+      unplayed = pool;
+    }
+  }
+
+  const refBpm = outgoingBpm && outgoingBpm > 40 ? outgoingBpm : null;
+  if (!refBpm) {
+    const first = unplayed[0];
+    const firstBpm = first.bpm ?? extractBpmFromTrackName(first.name);
+    return {
+      item: first,
+      sync: computeTempoSync(null, firstBpm),
+      resetCycle,
+    };
+  }
+
+  let bestItem = unplayed[0];
+  let bestSync = computeTempoSync(
+    refBpm,
+    bestItem.bpm ?? extractBpmFromTrackName(bestItem.name)
+  );
+  let bestCost = Number.POSITIVE_INFINITY;
+
+  unplayed.forEach((item, idx) => {
+    const candBpm = item.bpm ?? extractBpmFromTrackName(item.name);
+    const sync = computeTempoSync(refBpm, candBpm);
+    // Prefer known BPMs with minimal tempo stretch, gentle tie-breaker by folder order
+    const unknownPenalty = candBpm ? 0 : 0.22;
+    const incompatiblePenalty = sync.compatible ? 0 : 1.5;
+    const modePenalty = sync.mode === 'double' || sync.mode === 'half' ? 0.05 : 0;
+    const orderBias = idx * 0.002;
+    const cost =
+      Math.abs(1 - sync.ratio) + unknownPenalty + incompatiblePenalty + modePenalty + orderBias;
+
+    if (cost < bestCost) {
+      bestCost = cost;
+      bestItem = item;
+      bestSync = sync;
+    }
+  });
+
+  return {
+    item: bestItem,
+    sync: bestSync,
+    resetCycle,
+  };
+}
+

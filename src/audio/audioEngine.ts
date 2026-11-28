@@ -175,7 +175,13 @@ class ShowLiveAudioEngine {
   private urlBufferCache = new Map<string, AudioBuffer>();
   private bufferAnalysisCache = new WeakMap<
     AudioBuffer,
-    { introStartSec: number; detectedBpm: number; autoBeats: 4 | 8 }
+    {
+      introStartSec: number;
+      outroStartSec: number;
+      beatOffsetSec: number;
+      detectedBpm: number;
+      autoBeats: 4 | 8;
+    }
   >();
   private activePadSources = new Map<number, AudioBufferSourceNode[]>();
   private activeLoopPadIds = new Set<number>();
@@ -454,6 +460,23 @@ class ShowLiveAudioEngine {
     graph.stemInstGroup.gain.setTargetAtTime(mode === 'instrumental' ? 1 : 0, now, 0.03);
     graph.stemVocalGroup.gain.setTargetAtTime(mode === 'vocals' ? 1 : 0, now, 0.03);
     graph.stemDrumsGroup.gain.setTargetAtTime(mode === 'drums_bass' ? 1 : 0, now, 0.03);
+  }
+
+  public setDeckPlaybackRate(deckId: DeckId, rate: number, preservePitch = true) {
+    const graph = this.decks[deckId];
+    const el = graph?.mediaEl;
+    if (!el) return;
+    const clamped = Math.max(0.75, Math.min(1.35, Number.isFinite(rate) ? rate : 1));
+    try {
+      (el as any).preservesPitch = preservePitch;
+      (el as any).mozPreservesPitch = preservePitch;
+      (el as any).webkitPreservesPitch = preservePitch;
+      if (Math.abs(el.playbackRate - clamped) > 0.001) {
+        el.playbackRate = clamped;
+      }
+    } catch {
+      // Ignore media elements not yet ready
+    }
   }
 
   public updateChannelEq(deckId: DeckId, eq: ChannelEqState) {
@@ -944,8 +967,68 @@ class ShowLiveAudioEngine {
     return 4;
   }
 
+  private detectOutroStartSample(buffer: AudioBuffer, introSample: number): number {
+    const sr = buffer.sampleRate;
+    const durationSamples = buffer.length;
+    if (durationSamples < sr * 8) {
+      return Math.max(introSample + 1, Math.round(durationSamples * 0.72));
+    }
+
+    const ch0 = buffer.getChannelData(0);
+    const ch1 = buffer.numberOfChannels > 1 ? buffer.getChannelData(1) : ch0;
+
+    // Sample the body RMS (between 25% and 70% of track) as reference energy
+    const bodyStart = Math.round(durationSamples * 0.25);
+    const bodyEnd = Math.round(durationSamples * 0.7);
+    const step = Math.max(1, Math.floor((bodyEnd - bodyStart) / 6000));
+    let bodySq = 0;
+    let bodyCount = 0;
+    for (let i = bodyStart; i < bodyEnd; i += step) {
+      const s = 0.5 * (ch0[i] + ch1[i]);
+      bodySq += s * s;
+      bodyCount++;
+    }
+    const bodyRms = Math.sqrt(bodySq / Math.max(1, bodyCount));
+    if (bodyRms < 0.005) {
+      return Math.max(0, durationSamples - Math.round(sr * 12));
+    }
+
+    // Scan backwards from the end across the last 36 seconds in 50ms windows
+    const winSamples = Math.max(256, Math.round(sr * 0.05));
+    const minScanSample = Math.max(
+      Math.round(durationSamples * 0.5),
+      durationSamples - Math.round(sr * 36)
+    );
+    const activeThresh = Math.max(0.015, bodyRms * 0.22);
+
+    let lastLoudEndSample = durationSamples;
+    for (let pos = durationSamples - winSamples; pos >= minScanSample; pos -= winSamples) {
+      let sq = 0;
+      const stride = Math.max(1, Math.floor(winSamples / 64));
+      let count = 0;
+      for (let i = 0; i < winSamples; i += stride) {
+        const s = 0.5 * (ch0[pos + i] + ch1[pos + i]);
+        sq += s * s;
+        count++;
+      }
+      const rms = Math.sqrt(sq / Math.max(1, count));
+      if (rms >= activeThresh) {
+        lastLoudEndSample = pos + winSamples;
+        break;
+      }
+    }
+
+    // Ideal DJ outro point sits ~10s before trailing decay/silence completes
+    const idealSample = lastLoudEndSample - Math.round(sr * 10);
+    const minValid = Math.max(introSample + Math.round(sr * 4), Math.round(durationSamples * 0.52));
+    const maxValid = Math.max(minValid, durationSamples - Math.round(sr * 2));
+    return Math.max(minValid, Math.min(maxValid, idealSample));
+  }
+
   public analyzeBufferIntro(buffer: AudioBuffer): {
     introStartSec: number;
+    outroStartSec: number;
+    beatOffsetSec: number;
     detectedBpm: number;
     autoBeats: 4 | 8;
   } {
@@ -955,8 +1038,12 @@ class ShowLiveAudioEngine {
     const startSample = this.detectIntroStartSample(buffer);
     const detectedBpm = this.estimateBpmFromBuffer(buffer, startSample);
     const autoBeats = this.detectBestLoopBeats(buffer, startSample, detectedBpm);
+    const outroSample = this.detectOutroStartSample(buffer, startSample);
+    const introStartSec = Number((startSample / buffer.sampleRate).toFixed(3));
     const result = {
-      introStartSec: Number((startSample / buffer.sampleRate).toFixed(3)),
+      introStartSec,
+      outroStartSec: Number((outroSample / buffer.sampleRate).toFixed(3)),
+      beatOffsetSec: introStartSec,
       detectedBpm,
       autoBeats,
     };
@@ -964,9 +1051,13 @@ class ShowLiveAudioEngine {
     return result;
   }
 
-  public async analyzeAudioUrl(
-    url: string
-  ): Promise<{ introStartSec: number; detectedBpm: number; autoBeats: 4 | 8 } | null> {
+  public async analyzeAudioUrl(url: string): Promise<{
+    introStartSec: number;
+    outroStartSec: number;
+    beatOffsetSec: number;
+    detectedBpm: number;
+    autoBeats: 4 | 8;
+  } | null> {
     if (!url) return null;
     const ctx = this.ensureContext();
     let buffer = this.urlBufferCache.get(url);
@@ -1046,6 +1137,8 @@ class ShowLiveAudioEngine {
     this.urlBufferCache.set(clipUrl, clipBuf);
     this.bufferAnalysisCache.set(clipBuf, {
       introStartSec,
+      outroStartSec: Math.max(introStartSec + 2, clipEndSec - 2),
+      beatOffsetSec: introStartSec,
       detectedBpm,
       autoBeats,
     });

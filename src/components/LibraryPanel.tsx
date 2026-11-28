@@ -22,6 +22,8 @@ import {
   X,
 } from 'lucide-react';
 import {
+  AutoDjSourceType,
+  AutoDjStatus,
   DeckId,
   DriveFolder,
   DriveMusicFile,
@@ -49,6 +51,17 @@ interface LibraryPanelProps {
   onOpenAiLyrics: (track: TrackItem) => void;
   onOpenStemModal: () => void;
   onExportTrackOrShow: (track: TrackItem) => void;
+  // Auto DJ Session Controls
+  autoDjStatus?: AutoDjStatus;
+  onStartAutoDjSession?: (options: {
+    sourceType: AutoDjSourceType;
+    playlistId?: string | null;
+    driveFolderId?: string | null;
+    label: string;
+  }) => void;
+  onStopAutoDj?: () => void;
+  onManualCrossfadeNow?: () => void;
+  onSkipAutoDjNext?: () => void;
   // YouTube Search
   ytResults: YouTubeSearchResult[];
   ytLoading: boolean;
@@ -100,6 +113,11 @@ export const LibraryPanel: React.FC<LibraryPanelProps> = ({
   onOpenAiLyrics,
   onOpenStemModal,
   onExportTrackOrShow,
+  autoDjStatus,
+  onStartAutoDjSession,
+  onStopAutoDj,
+  onManualCrossfadeNow,
+  onSkipAutoDjNext,
   ytResults,
   ytLoading,
   ytError,
@@ -488,8 +506,8 @@ export const LibraryPanel: React.FC<LibraryPanelProps> = ({
         {activeTab === 'local' ? (
           <>
             {/* Top Bar of Track Table */}
-            <div className="flex flex-wrap items-center justify-between gap-2 px-3 md:px-4 py-2.5 border-b border-white/10 bg-[#101218]">
-              <div className="flex items-center gap-2 md:gap-3 flex-wrap w-full md:w-auto">
+            <div className="flex flex-wrap items-center justify-between gap-2 px-3 md:px-4 py-2 border-b border-white/10 bg-[#101218]">
+              <div className="flex items-center gap-2 md:gap-2.5 flex-wrap w-full md:w-auto">
                 <h2 className="font-display text-sm font-extrabold text-[#FACC15] whitespace-nowrap">
                   {selectedPlaylistId
                     ? playlists.find((p) => p.id === selectedPlaylistId)?.name ||
@@ -505,6 +523,48 @@ export const LibraryPanel: React.FC<LibraryPanelProps> = ({
                   <Upload className="w-3.5 h-3.5" />
                   <span>Subir Música</span>
                 </button>
+
+                {onStartAutoDjSession && visibleTracks.length > 0 && (() => {
+                  const isCurrentSessionActive =
+                    Boolean(autoDjStatus?.enabled) &&
+                    ((selectedPlaylistId &&
+                      autoDjStatus?.sourceType === 'playlist' &&
+                      autoDjStatus?.playlistId === selectedPlaylistId) ||
+                      (!selectedPlaylistId && autoDjStatus?.sourceType === 'all-local'));
+                  const folderName = selectedPlaylistId
+                    ? playlists.find((p) => p.id === selectedPlaylistId)?.name || 'Carpeta'
+                    : 'Todas las pistas';
+                  return (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        if (isCurrentSessionActive) {
+                          onStopAutoDj?.();
+                        } else {
+                          onStartAutoDjSession({
+                            sourceType: selectedPlaylistId ? 'playlist' : 'all-local',
+                            playlistId: selectedPlaylistId,
+                            label: folderName,
+                          });
+                        }
+                      }}
+                      className={`inline-flex items-center gap-1.5 px-3 py-1.5 md:px-2.5 md:py-1 rounded border text-xs font-extrabold cursor-pointer transition-all whitespace-nowrap ${
+                        isCurrentSessionActive
+                          ? 'bg-[#34D399] border-[#34D399] text-[#090A0E] shadow-[0_0_12px_rgba(52,211,153,0.45)]'
+                          : 'bg-[#0A0B0F] hover:bg-[#34D399]/15 border-[#34D399]/65 text-[#34D399]'
+                      }`}
+                      title={`Iniciar sesión Auto DJ mezclando automáticamente los temas de "${folderName}" con adaptación de BPM y Bass Swap`}
+                    >
+                      <Disc3
+                        className={`w-3.5 h-3.5 ${isCurrentSessionActive ? 'animate-spin' : ''}`}
+                        style={{ animationDuration: '2.5s' }}
+                      />
+                      <span>
+                        {isCurrentSessionActive ? 'Auto DJ ON' : 'Auto DJ Carpeta'}
+                      </span>
+                    </button>
+                  );
+                })()}
 
                 {tracks.length > 0 && (
                   <button
@@ -540,6 +600,59 @@ export const LibraryPanel: React.FC<LibraryPanelProps> = ({
                 <span>Separar Pista (IA)</span>
               </button>
             </div>
+
+            {autoDjStatus?.enabled && (
+              <div className="px-3 md:px-4 py-1.5 border-b border-[#34D399]/35 bg-[#091314] flex flex-wrap items-center justify-between gap-2 text-[11px]">
+                <div className="flex items-center gap-2 min-w-0 flex-1">
+                  <Disc3
+                    className="w-3.5 h-3.5 text-[#34D399] shrink-0 animate-spin"
+                    style={{ animationDuration: '2.5s' }}
+                  />
+                  <span className="font-extrabold text-[#34D399] whitespace-nowrap">
+                    AUTO DJ · {autoDjStatus.sourceLabel}
+                  </span>
+                  {autoDjStatus.nextTrackName && (
+                    <span className="text-slate-200 truncate">
+                      Sig: <strong>{autoDjStatus.nextTrackName}</strong>
+                    </span>
+                  )}
+                  {autoDjStatus.syncModeLabel && (
+                    <span className="px-1.5 py-0.5 rounded bg-[#FACC15]/15 border border-[#FACC15]/40 text-[#FACC15] font-mono-tabular font-bold text-[10px] shrink-0">
+                      {autoDjStatus.syncModeLabel}
+                    </span>
+                  )}
+                </div>
+                <div className="flex items-center gap-1.5 shrink-0">
+                  {onManualCrossfadeNow && (
+                    <button
+                      type="button"
+                      onClick={onManualCrossfadeNow}
+                      className="px-2 py-0.5 rounded bg-[#EC287B] hover:bg-[#F43F8E] text-white text-[10px] font-extrabold cursor-pointer whitespace-nowrap"
+                    >
+                      Mezclar Ya
+                    </button>
+                  )}
+                  {onSkipAutoDjNext && (
+                    <button
+                      type="button"
+                      onClick={onSkipAutoDjNext}
+                      className="px-2 py-0.5 rounded bg-[#141720] hover:bg-white/10 border border-white/15 text-slate-200 text-[10px] font-bold cursor-pointer whitespace-nowrap"
+                    >
+                      Saltar Sig.
+                    </button>
+                  )}
+                  {onStopAutoDj && (
+                    <button
+                      type="button"
+                      onClick={onStopAutoDj}
+                      className="px-2 py-0.5 rounded bg-[#141720] hover:bg-red-500/20 border border-red-500/40 text-red-300 text-[10px] font-bold cursor-pointer whitespace-nowrap"
+                    >
+                      Detener
+                    </button>
+                  )}
+                </div>
+              </div>
+            )}
 
             {/* Table Header (Desktop & Tablet) */}
             <div className="hidden md:grid grid-cols-12 gap-2 px-3 xl:px-4 py-2 text-[9px] lg:text-[10px] font-bold tracking-wider uppercase text-slate-400 border-b border-white/10 bg-[#0A0B0F] shrink-0">
@@ -591,6 +704,11 @@ export const LibraryPanel: React.FC<LibraryPanelProps> = ({
                         <span className="text-xs sm:text-sm md:text-xs font-medium text-slate-100 truncate">
                           {track.name}
                         </span>
+                        {track.bpm && (
+                          <span className="shrink-0 px-1.5 py-0.2 rounded bg-[#FACC15]/10 border border-[#FACC15]/35 text-[10px] font-mono-tabular font-bold text-[#FACC15]">
+                            {Math.round(track.bpm)} BPM
+                          </span>
+                        )}
                       </div>
 
                       <div className="md:col-span-3 lg:col-span-2 xl:col-span-1 flex justify-center shrink-0">
@@ -954,6 +1072,47 @@ export const LibraryPanel: React.FC<LibraryPanelProps> = ({
                       </span>
                     </button>
 
+                    {onStartAutoDjSession && driveFiles.length > 0 && (() => {
+                      const isDriveSessionActive =
+                        Boolean(autoDjStatus?.enabled) &&
+                        autoDjStatus?.sourceType === 'drive' &&
+                        autoDjStatus?.driveFolderId === (driveSelectedFolderId ?? null);
+                      const driveFolderLabel = driveSelectedFolderId
+                        ? driveFolders.find((f) => f.id === driveSelectedFolderId)?.name ||
+                          'Carpeta Drive'
+                        : 'Google Drive';
+                      return (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            if (isDriveSessionActive) {
+                              onStopAutoDj?.();
+                            } else {
+                              onStartAutoDjSession({
+                                sourceType: 'drive',
+                                driveFolderId: driveSelectedFolderId,
+                                label: driveFolderLabel,
+                              });
+                            }
+                          }}
+                          className={`inline-flex items-center gap-1 px-2.5 py-1 rounded border text-[11px] font-extrabold whitespace-nowrap cursor-pointer transition-all ${
+                            isDriveSessionActive
+                              ? 'bg-[#34D399] border-[#34D399] text-[#090A0E] shadow-[0_0_12px_rgba(52,211,153,0.45)]'
+                              : 'bg-[#0A0B0F] border-[#34D399]/65 text-[#34D399] hover:bg-[#34D399]/15'
+                          }`}
+                          title={`Iniciar sesión Auto DJ con "${driveFolderLabel}" (mezcla automática adaptando BPM)`}
+                        >
+                          <Disc3
+                            className={`w-3 h-3 shrink-0 ${isDriveSessionActive ? 'animate-spin' : ''}`}
+                            style={{ animationDuration: '2.5s' }}
+                          />
+                          <span>
+                            {isDriveSessionActive ? 'Auto DJ Drive ON' : 'Auto DJ Carpeta'}
+                          </span>
+                        </button>
+                      );
+                    })()}
+
                     {driveRecommendMode && (
                       <>
                         <button
@@ -1008,6 +1167,59 @@ export const LibraryPanel: React.FC<LibraryPanelProps> = ({
                       </>
                     )}
                   </div>
+
+                  {autoDjStatus?.enabled && autoDjStatus.sourceType === 'drive' && (
+                    <div className="px-2.5 py-1.5 rounded bg-[#091314] border border-[#34D399]/40 text-[11px] flex flex-wrap items-center justify-between gap-2 min-w-0">
+                      <div className="flex items-center gap-2 min-w-0 flex-1">
+                        <Disc3
+                          className="w-3.5 h-3.5 text-[#34D399] shrink-0 animate-spin"
+                          style={{ animationDuration: '2.5s' }}
+                        />
+                        <span className="font-extrabold text-[#34D399] whitespace-nowrap">
+                          AUTO DJ · {autoDjStatus.sourceLabel}
+                        </span>
+                        {autoDjStatus.nextTrackName && (
+                          <span className="text-slate-200 truncate">
+                            Sig: <strong>{autoDjStatus.nextTrackName}</strong>
+                          </span>
+                        )}
+                        {autoDjStatus.syncModeLabel && (
+                          <span className="px-1.5 py-0.5 rounded bg-[#FACC15]/15 border border-[#FACC15]/40 text-[#FACC15] font-mono-tabular font-bold text-[10px] shrink-0">
+                            {autoDjStatus.syncModeLabel}
+                          </span>
+                        )}
+                      </div>
+                      <div className="flex items-center gap-1.5 shrink-0">
+                        {onManualCrossfadeNow && (
+                          <button
+                            type="button"
+                            onClick={onManualCrossfadeNow}
+                            className="px-2 py-0.5 rounded bg-[#EC287B] hover:bg-[#F43F8E] text-white text-[10px] font-extrabold cursor-pointer whitespace-nowrap"
+                          >
+                            Mezclar Ya
+                          </button>
+                        )}
+                        {onSkipAutoDjNext && (
+                          <button
+                            type="button"
+                            onClick={onSkipAutoDjNext}
+                            className="px-2 py-0.5 rounded bg-[#141720] hover:bg-white/10 border border-white/15 text-slate-200 text-[10px] font-bold cursor-pointer whitespace-nowrap"
+                          >
+                            Saltar
+                          </button>
+                        )}
+                        {onStopAutoDj && (
+                          <button
+                            type="button"
+                            onClick={onStopAutoDj}
+                            className="px-2 py-0.5 rounded bg-[#141720] hover:bg-red-500/20 border border-red-500/40 text-red-300 text-[10px] font-bold cursor-pointer whitespace-nowrap"
+                          >
+                            Detener
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                  )}
 
                   {driveRecommendMode && (
                     <div className="px-2.5 py-1.5 rounded bg-[#0A0B0F] border border-white/10 text-[11px] flex flex-wrap items-center justify-between gap-1.5 min-w-0">

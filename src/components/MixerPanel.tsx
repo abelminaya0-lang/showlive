@@ -1,11 +1,12 @@
 import React, { useEffect } from 'react';
-import { ArrowLeftRight, FolderOpen, Repeat } from 'lucide-react';
+import { ArrowLeftRight, Disc3, FolderOpen } from 'lucide-react';
 import { audioEngine } from '../audio/audioEngine';
-import { ChannelEqState, DeckId, MixerState } from '../types/showlive';
+import { AutoDjStatus, ChannelEqState, DeckId, MixerState } from '../types/showlive';
 import { MixerSpectrogram } from './MixerSpectrogram';
 
 interface MixerPanelProps {
   mixer: MixerState;
+  autoDjStatus?: AutoDjStatus;
   onChangeChannel: (deck: DeckId, patch: Partial<ChannelEqState>) => void;
   onChangeCrossfader: (value: number) => void;
   onToggleAutoMix: () => void;
@@ -235,6 +236,7 @@ interface TwinRailFaderProps {
 
 export const MixerPanel: React.FC<MixerPanelProps> = ({
   mixer,
+  autoDjStatus,
   onChangeChannel,
   onChangeCrossfader,
   onToggleAutoMix,
@@ -392,20 +394,39 @@ export const MixerPanel: React.FC<MixerPanelProps> = ({
           onClick={onToggleAutoMix}
           className={`flex-1 flex items-center justify-center gap-1 py-1 rounded border text-[9px] xl:text-[10px] font-extrabold tracking-wider cursor-pointer transition-all whitespace-nowrap ${
             mixer.autoMixEnabled
-              ? 'border-[#FACC15] bg-[#FACC15] text-[#090A0E] shadow-[0_0_14px_rgba(250,204,21,0.5)]'
+              ? autoDjStatus?.phase &&
+                autoDjStatus.phase !== 'idle' &&
+                autoDjStatus.phase !== 'standby'
+                ? 'border-[#34D399] bg-[#34D399] text-[#090A0E] shadow-[0_0_16px_rgba(52,211,153,0.65)] animate-pulse'
+                : 'border-[#FACC15] bg-[#FACC15] text-[#090A0E] shadow-[0_0_14px_rgba(250,204,21,0.5)]'
               : 'border-white/20 bg-[#0A0B0F] hover:border-[#FACC15]/60 text-slate-200 hover:text-white'
           }`}
-          title="AutoMix: Al terminar la canción de un Deck, pasa automáticamente al otro Deck"
+          title="Auto DJ: selecciona temas de tu carpeta, adapta los BPM y mezcla con EQ Bass-Swap + Filtro en automático"
         >
-          <Repeat className="w-3 h-3" />
-          <span>{mixer.autoMixEnabled ? 'AUTOMIX ON' : 'AUTOMIX'}</span>
+          <Disc3
+            className={`w-3 h-3 ${mixer.autoMixEnabled ? 'animate-spin' : ''}`}
+            style={{ animationDuration: '2.5s' }}
+          />
+          <span>
+            {!mixer.autoMixEnabled
+              ? 'AUTO DJ'
+              : autoDjStatus?.phase === 'cueing'
+              ? 'SYNC BPM'
+              : autoDjStatus?.phase === 'bass-swap'
+              ? 'BASS SWAP'
+              : autoDjStatus?.phase === 'blending'
+              ? 'MEZCLANDO'
+              : autoDjStatus?.phase === 'gliding'
+              ? 'TEMPO GLIDE'
+              : 'AUTO DJ ON'}
+          </span>
         </button>
 
         <button
           type="button"
           onClick={onManualCrossfadeNow}
           className="px-1.5 xl:px-2 py-1 rounded border border-[#EC287B]/60 bg-[#0A0B0F] hover:bg-[#EC287B]/20 text-[#EC287B] hover:text-white text-[9px] xl:text-[10px] font-bold cursor-pointer transition-colors"
-          title="Hacer transición automática al otro Deck ahora"
+          title="Hacer mezcla DJ automática al otro Deck ahora (Beatmatch + Bass Swap)"
         >
           <ArrowLeftRight className="w-3 h-3" />
         </button>
@@ -586,22 +607,25 @@ export const MixerPanel: React.FC<MixerPanelProps> = ({
           <button
             type="button"
             onClick={onToggleAutoMix}
-            className={`w-full py-2 rounded border text-[9px] font-extrabold tracking-wide flex flex-col items-center justify-center gap-0.5 cursor-pointer transition-all ${
+            className={`w-full py-2 rounded border text-[8.5px] font-extrabold tracking-wide flex flex-col items-center justify-center gap-0.5 cursor-pointer transition-all ${
               mixer.autoMixEnabled
                 ? 'border-[#FACC15] bg-[#FACC15] text-[#090A0E] shadow-[0_0_12px_rgba(250,204,21,0.5)]'
                 : 'border-white/20 bg-[#12151E] text-slate-200'
             }`}
-            title="AutoMix automático al terminar canción"
+            title="Auto DJ: adapta BPM y mezcla con EQ Bass-Swap automático"
           >
-            <Repeat className="w-3 h-3" />
-            <span>{mixer.autoMixEnabled ? 'AUTO' : 'MIX'}</span>
+            <Disc3
+              className={`w-3 h-3 ${mixer.autoMixEnabled ? 'animate-spin' : ''}`}
+              style={{ animationDuration: '2.5s' }}
+            />
+            <span>{mixer.autoMixEnabled ? 'DJ ON' : 'AUTO DJ'}</span>
           </button>
 
           <button
             type="button"
             onClick={onManualCrossfadeNow}
             className="w-full py-1.5 rounded border border-[#EC287B]/55 bg-[#12151E] text-[#EC287B] flex items-center justify-center cursor-pointer"
-            title="Cambiar de Deck ahora"
+            title="Mezclar como DJ al otro Deck ahora"
           >
             <ArrowLeftRight className="w-3.5 h-3.5" />
           </button>
@@ -658,8 +682,20 @@ export const MixerPanel: React.FC<MixerPanelProps> = ({
       </div>
 
       {/* Real-Time Web Audio Master Spectrogram (Frequencies + Bass/Mid/Treble) */}
-      <div className="mt-0.5 xl:mt-1 shrink-0">
+      <div className="relative mt-0.5 xl:mt-1 shrink-0">
         <MixerSpectrogram />
+        {mixer.autoMixEnabled && autoDjStatus?.nextTrackName && (
+          <div className="absolute top-0.5 inset-x-1 flex items-center justify-between gap-1 px-1.5 py-[1px] rounded bg-black/80 border border-[#34D399]/40 pointer-events-none">
+            <span className="text-[8px] font-bold text-[#34D399] truncate">
+              Sig: {autoDjStatus.nextTrackName}
+            </span>
+            {autoDjStatus.syncModeLabel && (
+              <span className="text-[8px] font-mono-tabular font-bold text-[#FACC15] shrink-0">
+                {autoDjStatus.syncModeLabel}
+              </span>
+            )}
+          </div>
+        )}
       </div>
 
       {/* Bottom Twin-Rail Hardware Crossfader */}

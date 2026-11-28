@@ -46,6 +46,13 @@ interface DeckPanelProps {
   onCaptureIntroToPad?: (deckId: DeckId) => void;
   onPlaybackError?: (message: string) => void;
   onDetectedBpm?: (bpm: number) => void;
+  onTrackAnalysis?: (analysis: {
+    trackId: string;
+    detectedBpm: number;
+    introStartSec: number;
+    outroStartSec: number;
+    beatOffsetSec: number;
+  }) => void;
 }
 
 function formatTime(sec: number): string {
@@ -76,6 +83,7 @@ export const DeckPanel: React.FC<DeckPanelProps> = ({
   onCaptureIntroToPad,
   onPlaybackError,
   onDetectedBpm,
+  onTrackAnalysis,
 }) => {
   const mediaRef = useRef<HTMLVideoElement | null>(null);
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
@@ -211,7 +219,7 @@ export const DeckPanel: React.FC<DeckPanelProps> = ({
     }
   }, [deck.currentTime, deck.source]);
 
-  // Sync pitch shifter & stem isolation
+  // Sync pitch shifter, stem isolation & beatmatched playbackRate (with key lock)
   useEffect(() => {
     audioEngine.setDeckPitch(deck.id, deck.pitchSemitones);
   }, [deck.id, deck.pitchSemitones]);
@@ -220,18 +228,42 @@ export const DeckPanel: React.FC<DeckPanelProps> = ({
     audioEngine.setDeckStemMode(deck.id, deck.stemMode);
   }, [deck.id, deck.stemMode]);
 
-  // Pre-analyze intro start & BPM and clean up active Web Audio loop when track changes
+  useEffect(() => {
+    const rate = deck.playbackRate ?? 1;
+    const el = mediaRef.current;
+    if (el && deck.source === 'local') {
+      const clamped = Math.max(0.75, Math.min(1.35, Number.isFinite(rate) ? rate : 1));
+      (el as any).preservesPitch = true;
+      (el as any).mozPreservesPitch = true;
+      (el as any).webkitPreservesPitch = true;
+      if (Math.abs(el.playbackRate - clamped) > 0.001) {
+        el.playbackRate = clamped;
+      }
+    }
+    audioEngine.setDeckPlaybackRate(deck.id, rate, true);
+  }, [deck.id, deck.playbackRate, deck.source, resolvedUrl]);
+
+  // Pre-analyze intro/outro & BPM and clean up active Web Audio loop when track changes
   useEffect(() => {
     let cancelled = false;
     audioEngine.stopDeckIntroLoop(deck.id);
     introLoopActiveRef.current = false;
     setIntroLoopActive(false);
     setIntroLoopWindow(null);
-    if (resolvedUrl && deck.source === 'local') {
+    if (resolvedUrl && deck.source === 'local' && deck.track) {
+      const trackId = deck.track.id;
       audioEngine.analyzeAudioUrl(resolvedUrl).then((res) => {
-        if (!cancelled && res?.detectedBpm && !deck.track?.bpm) {
+        if (cancelled || !res) return;
+        if (res.detectedBpm && !deck.track?.bpm) {
           onDetectedBpm?.(res.detectedBpm);
         }
+        onTrackAnalysis?.({
+          trackId,
+          detectedBpm: res.detectedBpm,
+          introStartSec: res.introStartSec,
+          outroStartSec: res.outroStartSec,
+          beatOffsetSec: res.beatOffsetSec,
+        });
       });
     }
     return () => {
@@ -846,6 +878,11 @@ export const DeckPanel: React.FC<DeckPanelProps> = ({
               }}
               onLoadedMetadata={(e) => {
                 const el = e.currentTarget;
+                const rate = deck.playbackRate ?? 1;
+                (el as any).preservesPitch = true;
+                (el as any).mozPreservesPitch = true;
+                (el as any).webkitPreservesPitch = true;
+                el.playbackRate = Math.max(0.75, Math.min(1.35, rate));
                 onTimeUpdate(el.currentTime, el.duration || deck.track?.durationSec || 0);
               }}
               onError={() => {
@@ -973,7 +1010,18 @@ export const DeckPanel: React.FC<DeckPanelProps> = ({
                     } ${deck.isPlaying ? 'animate-spin' : ''}`}
                     style={{ animationDuration: '3s' }}
                   />
-                  <span>{deck.track.bpm ? `${deck.track.bpm} BPM` : 'AUDIO'}</span>
+                  <span>
+                    {deck.track.bpm
+                      ? deck.syncedBpm && Math.abs((deck.playbackRate ?? 1) - 1) > 0.008
+                        ? `${Math.round(deck.track.bpm)}→${Math.round(deck.syncedBpm)} BPM`
+                        : `${Math.round(deck.track.bpm * (deck.playbackRate ?? 1))} BPM`
+                      : 'AUDIO'}
+                  </span>
+                  {Math.abs((deck.playbackRate ?? 1) - 1) > 0.008 && (
+                    <span className="px-1 py-0.2 rounded bg-[#34D399]/20 border border-[#34D399]/50 text-[#34D399] text-[9px] font-extrabold">
+                      SYNC
+                    </span>
+                  )}
                   <span className="text-slate-600">·</span>
                   <button
                     type="button"
