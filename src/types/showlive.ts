@@ -46,6 +46,7 @@ export interface TrackItem {
   introStartSec?: number;
   outroStartSec?: number;
   beatOffsetSec?: number;
+  barOffsetSec?: number;
   coroStartSec?: number;
   coroMixOutSec?: number;
   coroDropInSec?: number;

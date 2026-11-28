@@ -52,6 +52,7 @@ interface DeckPanelProps {
     introStartSec: number;
     outroStartSec: number;
     beatOffsetSec: number;
+    barOffsetSec: number;
     coroStartSec: number;
     coroMixOutSec: number;
     coroDropInSec: number;
@@ -146,6 +147,13 @@ export const DeckPanel: React.FC<DeckPanelProps> = ({
     [onPlaybackError, onSetPlaying]
   );
 
+  const attemptAudioRecoveryRef = useRef(attemptAudioRecovery);
+  attemptAudioRecoveryRef.current = attemptAudioRecovery;
+  const deckTrackRef = useRef(deck.track);
+  deckTrackRef.current = deck.track;
+  const playbackRateRef = useRef(deck.playbackRate ?? 1);
+  playbackRateRef.current = deck.playbackRate ?? 1;
+
   // Resolve local file URL or synthesized demo WAV URL
   useEffect(() => {
     recoveryAttemptedForRef.current = null;
@@ -171,7 +179,7 @@ export const DeckPanel: React.FC<DeckPanelProps> = ({
     audioEngine.attachMediaElement(deck.id, el);
   }, [deck.id, resolvedUrl]);
 
-  // Sync play/pause for local media & YouTube iframe
+  // Sync play/pause for local media & YouTube iframe (without clobbering active Auto DJ tempo ramps)
   useEffect(() => {
     if (deck.source === 'local') {
       const el = mediaRef.current;
@@ -188,17 +196,19 @@ export const DeckPanel: React.FC<DeckPanelProps> = ({
       }
       if (deck.isPlaying) {
         audioEngine.resume();
-        const rate = deck.playbackRate ?? 1;
-        const clampedRate = Math.max(0.75, Math.min(1.35, Number.isFinite(rate) ? rate : 1));
-        try {
-          (el as any).preservesPitch = true;
-          (el as any).mozPreservesPitch = true;
-          (el as any).webkitPreservesPitch = true;
-          if (Math.abs(el.playbackRate - clampedRate) > 0.001) {
-            el.playbackRate = clampedRate;
+        if (!audioEngine.isDeckAutoControlled(deck.id)) {
+          const rate = playbackRateRef.current;
+          const clampedRate = Math.max(0.75, Math.min(1.35, Number.isFinite(rate) ? rate : 1));
+          try {
+            (el as any).preservesPitch = true;
+            (el as any).mozPreservesPitch = true;
+            (el as any).webkitPreservesPitch = true;
+            if (Math.abs(el.playbackRate - clampedRate) > 0.0004) {
+              el.playbackRate = clampedRate;
+            }
+          } catch {
+            // Ignore
           }
-        } catch {
-          // Ignore
         }
         if (pendingSeekRef.current !== null && el.readyState >= 1) {
           const target = pendingSeekRef.current;
@@ -210,8 +220,9 @@ export const DeckPanel: React.FC<DeckPanelProps> = ({
         if (el.paused) {
           el.play().catch((err: any) => {
             if (err?.name === 'AbortError') return;
-            if (deck.track && resolvedUrl) {
-              attemptAudioRecovery(resolvedUrl, deck.track.id, deck.track.name);
+            const tr = deckTrackRef.current;
+            if (tr && resolvedUrl) {
+              attemptAudioRecoveryRef.current(resolvedUrl, tr.id, tr.name);
             }
           });
         }
@@ -225,7 +236,7 @@ export const DeckPanel: React.FC<DeckPanelProps> = ({
         '*'
       );
     }
-  }, [deck.isPlaying, deck.source, resolvedUrl, deck.id, deck.track, deck.playbackRate, attemptAudioRecovery]);
+  }, [deck.isPlaying, deck.source, resolvedUrl, deck.id, deck.track?.id]);
 
   // Sync YouTube volume with mixer fader + crossfader
   useEffect(() => {
@@ -262,6 +273,7 @@ export const DeckPanel: React.FC<DeckPanelProps> = ({
   }, [deck.id, deck.stemMode]);
 
   useEffect(() => {
+    if (audioEngine.isDeckAutoControlled(deck.id)) return;
     const rate = deck.playbackRate ?? 1;
     const el = mediaRef.current;
     if (el && deck.source === 'local') {
@@ -269,7 +281,7 @@ export const DeckPanel: React.FC<DeckPanelProps> = ({
       (el as any).preservesPitch = true;
       (el as any).mozPreservesPitch = true;
       (el as any).webkitPreservesPitch = true;
-      if (Math.abs(el.playbackRate - clamped) > 0.001) {
+      if (Math.abs(el.playbackRate - clamped) > 0.0004) {
         el.playbackRate = clamped;
       }
     }
@@ -296,6 +308,7 @@ export const DeckPanel: React.FC<DeckPanelProps> = ({
           introStartSec: res.introStartSec,
           outroStartSec: res.outroStartSec,
           beatOffsetSec: res.beatOffsetSec,
+          barOffsetSec: res.barOffsetSec,
           coroStartSec: res.coroStartSec,
           coroMixOutSec: res.coroMixOutSec,
           coroDropInSec: res.coroDropInSec,
@@ -923,11 +936,13 @@ export const DeckPanel: React.FC<DeckPanelProps> = ({
               }}
               onLoadedMetadata={(e) => {
                 const el = e.currentTarget;
-                const rate = deck.playbackRate ?? 1;
-                (el as any).preservesPitch = true;
-                (el as any).mozPreservesPitch = true;
-                (el as any).webkitPreservesPitch = true;
-                el.playbackRate = Math.max(0.75, Math.min(1.35, rate));
+                if (!audioEngine.isDeckAutoControlled(deck.id)) {
+                  const rate = deck.playbackRate ?? 1;
+                  (el as any).preservesPitch = true;
+                  (el as any).mozPreservesPitch = true;
+                  (el as any).webkitPreservesPitch = true;
+                  el.playbackRate = Math.max(0.75, Math.min(1.35, rate));
+                }
                 if (pendingSeekRef.current !== null) {
                   const target = pendingSeekRef.current;
                   pendingSeekRef.current = null;
@@ -938,13 +953,14 @@ export const DeckPanel: React.FC<DeckPanelProps> = ({
                 onTimeUpdate(el.currentTime, el.duration || deck.track?.durationSec || 0);
               }}
               onPlay={(e) => {
+                if (audioEngine.isDeckAutoControlled(deck.id)) return;
                 const el = e.currentTarget;
                 const rate = deck.playbackRate ?? 1;
                 (el as any).preservesPitch = true;
                 (el as any).mozPreservesPitch = true;
                 (el as any).webkitPreservesPitch = true;
                 const clamped = Math.max(0.75, Math.min(1.35, rate));
-                if (Math.abs(el.playbackRate - clamped) > 0.001) {
+                if (Math.abs(el.playbackRate - clamped) > 0.0004) {
                   el.playbackRate = clamped;
                 }
               }}
@@ -1065,22 +1081,56 @@ export const DeckPanel: React.FC<DeckPanelProps> = ({
               )}
 
               {/* Top Info Overlay */}
-              <div className="relative z-10 hidden md:flex items-center justify-between px-2 xl:px-3 py-1.5 xl:py-2 pointer-events-auto">
-                <div className="flex items-center gap-1.5 xl:gap-2 text-[10px] xl:text-[11px] font-mono-tabular text-slate-300 bg-black/50 px-2 py-1 rounded">
+              <div className="relative z-10 hidden md:flex items-center justify-between gap-2 px-2 xl:px-3 py-1.5 xl:py-2 pointer-events-auto">
+                <div className="flex items-center gap-1.5 xl:gap-2 text-[10px] xl:text-[11px] font-mono-tabular text-slate-300 bg-black/50 px-2 py-1 rounded whitespace-nowrap min-w-0">
                   <Disc3
-                    className={`w-3.5 h-3.5 ${
+                    className={`w-3.5 h-3.5 shrink-0 ${
                       deck.id === 'A' ? 'text-cyan-400' : 'text-[#F4256A]'
                     } ${deck.isPlaying ? 'animate-spin' : ''}`}
                     style={{ animationDuration: '3s' }}
                   />
-                  <span>
+                  <span className="whitespace-nowrap">
                     {deck.track.bpm
-                      ? deck.syncedBpm && Math.abs((deck.playbackRate ?? 1) - 1) > 0.008
+                      ? deck.syncedBpm && Math.abs((deck.playbackRate ?? 1) - 1) > 0.005
                         ? `${Math.round(deck.track.bpm)}→${Math.round(deck.syncedBpm)} BPM`
                         : `${Math.round(deck.track.bpm * (deck.playbackRate ?? 1))} BPM`
                       : 'AUDIO'}
                   </span>
-                  {Math.abs((deck.playbackRate ?? 1) - 1) > 0.008 && (
+                  {deck.track.bpm && deck.track.bpm > 40 && (() => {
+                    const beatSec = 60 / deck.track.bpm;
+                    const barOff =
+                      deck.track.barOffsetSec ??
+                      deck.track.beatOffsetSec ??
+                      deck.track.introStartSec ??
+                      0;
+                    const beatIdx = deck.isPlaying
+                      ? ((Math.floor((deck.currentTime - barOff + 0.03) / beatSec) % 4) + 4) % 4
+                      : -1;
+                    return (
+                      <span
+                        className="inline-flex items-center gap-[3px] px-1"
+                        title="Compás musical 1-2-3-4 (el punto dorado marca el Tiempo 1)"
+                      >
+                        {[0, 1, 2, 3].map((idx) => (
+                          <span
+                            key={idx}
+                            className={`rounded-full transition-transform duration-75 ${
+                              idx === 0 ? 'w-1.5 h-1.5' : 'w-1 h-1'
+                            } ${
+                              beatIdx === idx
+                                ? idx === 0
+                                  ? 'bg-[#FACC15] shadow-[0_0_6px_#FACC15] scale-125'
+                                  : deck.id === 'A'
+                                  ? 'bg-[#22D3EE] scale-110'
+                                  : 'bg-[#EC287B] scale-110'
+                                : 'bg-white/20'
+                            }`}
+                          />
+                        ))}
+                      </span>
+                    );
+                  })()}
+                  {Math.abs((deck.playbackRate ?? 1) - 1) > 0.005 && (
                     <span className="px-1 py-0.2 rounded bg-[#34D399]/20 border border-[#34D399]/50 text-[#34D399] text-[9px] font-extrabold">
                       SYNC
                     </span>
@@ -1114,14 +1164,14 @@ export const DeckPanel: React.FC<DeckPanelProps> = ({
                   <button
                     type="button"
                     onClick={() => setShowKeyPicker((v) => !v)}
-                    className="text-cyan-300 hover:text-white cursor-pointer"
+                    className="text-cyan-300 hover:text-white cursor-pointer whitespace-nowrap"
                     title="Cambiar tono original o nota musical del cantante"
                   >
                     Tono: {transposed.latin} ({transposed.intl})
                   </button>
                 </div>
 
-                <div className="flex items-center gap-1.5">
+                <div className="flex items-center gap-1.5 shrink-0 whitespace-nowrap">
                   {deck.track.hasAiLyrics ? (
                     <button
                       type="button"

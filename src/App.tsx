@@ -987,6 +987,7 @@ export default function App() {
           (!ready.bpm ||
             ready.introStartSec === undefined ||
             ready.outroStartSec === undefined ||
+            ready.barOffsetSec === undefined ||
             ready.coroMixOutSec === undefined)
         ) {
           const analysis = await audioEngine.analyzeAudioUrl(mediaUrl);
@@ -997,6 +998,7 @@ export default function App() {
               introStartSec: ready.introStartSec ?? analysis.introStartSec,
               outroStartSec: ready.outroStartSec ?? analysis.outroStartSec,
               beatOffsetSec: ready.beatOffsetSec ?? analysis.beatOffsetSec,
+              barOffsetSec: ready.barOffsetSec ?? analysis.barOffsetSec,
               coroStartSec: ready.coroStartSec ?? analysis.coroStartSec,
               coroMixOutSec: ready.coroMixOutSec ?? analysis.coroMixOutSec,
               coroDropInSec: ready.coroDropInSec ?? analysis.coroDropInSec,
@@ -1035,6 +1037,7 @@ export default function App() {
           introStartSec: analysis?.introStartSec,
           outroStartSec: analysis?.outroStartSec,
           beatOffsetSec: analysis?.beatOffsetSec,
+          barOffsetSec: analysis?.barOffsetSec,
           coroStartSec: analysis?.coroStartSec,
           coroMixOutSec: analysis?.coroMixOutSec,
           coroDropInSec: analysis?.coroDropInSec,
@@ -1202,6 +1205,7 @@ export default function App() {
         introStartSec: number;
         outroStartSec: number;
         beatOffsetSec: number;
+        barOffsetSec: number;
         coroStartSec: number;
         coroMixOutSec: number;
         coroDropInSec: number;
@@ -1217,6 +1221,7 @@ export default function App() {
             introStartSec: prev.track.introStartSec ?? analysis.introStartSec,
             outroStartSec: prev.track.outroStartSec ?? analysis.outroStartSec,
             beatOffsetSec: prev.track.beatOffsetSec ?? analysis.beatOffsetSec,
+            barOffsetSec: prev.track.barOffsetSec ?? analysis.barOffsetSec,
             coroStartSec: prev.track.coroStartSec ?? analysis.coroStartSec,
             coroMixOutSec: prev.track.coroMixOutSec ?? analysis.coroMixOutSec,
             coroDropInSec: prev.track.coroDropInSec ?? analysis.coroDropInSec,
@@ -1232,6 +1237,7 @@ export default function App() {
                 introStartSec: t.introStartSec ?? analysis.introStartSec,
                 outroStartSec: t.outroStartSec ?? analysis.outroStartSec,
                 beatOffsetSec: t.beatOffsetSec ?? analysis.beatOffsetSec,
+                barOffsetSec: t.barOffsetSec ?? analysis.barOffsetSec,
                 coroStartSec: t.coroStartSec ?? analysis.coroStartSec,
                 coroMixOutSec: t.coroMixOutSec ?? analysis.coroMixOutSec,
                 coroDropInSec: t.coroDropInSec ?? analysis.coroDropInSec,
@@ -1279,6 +1285,8 @@ export default function App() {
   };
 
   const clearAutoDjTimers = useCallback(() => {
+    audioEngine.setDeckAutoControlled('A', false);
+    audioEngine.setDeckAutoControlled('B', false);
     if (autoMixTimerRef.current) {
       window.clearInterval(autoMixTimerRef.current);
       autoMixTimerRef.current = null;
@@ -1334,12 +1342,13 @@ export default function App() {
         return; // Nothing to transition to
       }
 
-      // Ensure incoming track has analyzed beat grid & BPM before beatmatching
+      // Ensure incoming track has analyzed 4-beat compás grid & BPM before beatmatching
       if (incomingTrack && incomingTrack.sourceType === 'file') {
         const inUrl = incomingTrack.videoUrl || incomingTrack.audioUrl || '';
         if (
           inUrl &&
           (!incomingTrack.bpm ||
+            incomingTrack.barOffsetSec === undefined ||
             incomingTrack.beatOffsetSec === undefined ||
             incomingTrack.introStartSec === undefined)
         ) {
@@ -1351,6 +1360,7 @@ export default function App() {
               introStartSec: incomingTrack.introStartSec ?? analysis.introStartSec,
               outroStartSec: incomingTrack.outroStartSec ?? analysis.outroStartSec,
               beatOffsetSec: incomingTrack.beatOffsetSec ?? analysis.beatOffsetSec,
+              barOffsetSec: incomingTrack.barOffsetSec ?? analysis.barOffsetSec,
               coroStartSec: incomingTrack.coroStartSec ?? analysis.coroStartSec,
               coroMixOutSec: incomingTrack.coroMixOutSec ?? analysis.coroMixOutSec,
               coroDropInSec: incomingTrack.coroDropInSec ?? analysis.coroDropInSec,
@@ -1368,11 +1378,18 @@ export default function App() {
       audioEngine.resume();
       clearAutoDjTimers();
 
+      const fromBaseBpm =
+        fromDeck.track?.bpm ||
+        (fromDeck.track?.name ? extractBpmFromTrackName(fromDeck.track.name) : null) ||
+        100;
+      const fromStartRate = fromDeck.playbackRate ?? 1;
+      const effFromBpm = fromBaseBpm * fromStartRate;
+
       // Calculate exact BPM beatmatching ratio (key-locked via preservesPitch=true)
       const inBpm =
         incomingTrack?.bpm ??
         (incomingTrack?.name ? extractBpmFromTrackName(incomingTrack.name) : null);
-      const sync = computeTempoSync(outBpmRaw, inBpm);
+      const sync = computeTempoSync(effFromBpm, inBpm);
 
       const inIntroCue = incomingTrack?.introStartSec ?? 0;
       const startInAtSec =
@@ -1391,19 +1408,19 @@ export default function App() {
         suggestedMixInSec: startInAtSec,
       }));
 
-      // Cue incoming deck EQ with Bass cut (-20 dB) + subtle HPF (+0.25) while keeping outgoing track untouched
+      // Cue incoming deck EQ cleanly (Bass cut -22 dB + HPF +0.28) while keeping outgoing track punchy
       const startFromEq = mixerRef.current[fromDeckId];
       setMixer((prev) => ({
         ...prev,
         [fromDeckId]: {
           ...startFromEq,
-          volume: Math.max(0.95, startFromEq.volume || 1),
+          volume: Math.max(0.96, startFromEq.volume || 1),
         },
         [toDeckId]: {
-          high: 0,
-          mid: -2.0,
-          low: -20,
-          filter: 0.25,
+          high: -0.5,
+          mid: -2.5,
+          low: -22,
+          filter: 0.28,
           volume: 1.0,
         },
       }));
@@ -1447,22 +1464,66 @@ export default function App() {
 
       if (autoTransitionDeckRef.current !== fromDeckId) return;
 
-      // Read real live outgoing media position AFTER buffering to snap to exact next Beat-1
+      // Exact unit-safe Compás (4-beat bar) alignment in SOURCE media seconds -> WALL milliseconds
       const fromEl = audioEngine.getDeckMediaElement(fromDeckId);
       const liveFromTime = fromEl ? fromEl.currentTime : fromDeck.currentTime;
-      const fromBeatPeriod = outBpmRaw && outBpmRaw > 40 ? 60 / outBpmRaw : 0.6;
+      const fromDur = fromDeck.duration || fromDeck.track?.durationSec || 180;
+      const fromSrcBeat = 60 / Math.max(55, fromBaseBpm);
+      const fromSrcBar = fromSrcBeat * 4;
+      const fromBarOff =
+        fromDeck.track?.barOffsetSec ??
+        fromDeck.track?.beatOffsetSec ??
+        fromDeck.track?.introStartSec ??
+        0;
+
       let beatWaitMs = 0;
-      if (fromDeck.isPlaying && outBpmRaw && outBpmRaw > 40) {
-        const offset = fromDeck.track?.beatOffsetSec ?? fromDeck.track?.introStartSec ?? 0;
-        const phase = (((liveFromTime - offset) % fromBeatPeriod) + fromBeatPeriod) % fromBeatPeriod;
-        const rawWait = ((fromBeatPeriod - phase) % fromBeatPeriod) * 1000;
-        beatWaitMs = isManual ? Math.min(160, rawWait) : Math.min(640, rawWait);
+      if (fromDeck.isPlaying && fromBaseBpm > 40) {
+        const remainingSrc = Math.max(0.5, fromDur - liveFromTime);
+        if (isManual) {
+          // Manual "Mezclar Ya": snap cleanly to the next exact Beat (full beat window, even for slow tempos)
+          const beatPhaseSrc =
+            (((liveFromTime - fromBarOff) % fromSrcBeat) + fromSrcBeat) % fromSrcBeat;
+          const rawBeatWaitSrc = (fromSrcBeat - beatPhaseSrc) % fromSrcBeat;
+          const waitSrcSec = rawBeatWaitSrc < 0.03 ? 0 : rawBeatWaitSrc;
+          beatWaitMs = Math.round((waitSrcSec / Math.max(0.5, fromStartRate)) * 1000);
+        } else {
+          // Automatic DJ transition: wait specifically for Beat 1 of the 4-beat compás
+          const barPhaseSrc =
+            (((liveFromTime - fromBarOff) % fromSrcBar) + fromSrcBar) % fromSrcBar;
+          const rawBarWaitSrc = (fromSrcBar - barPhaseSrc) % fromSrcBar;
+          let waitSrcSec = rawBarWaitSrc < 0.04 ? 0 : rawBarWaitSrc;
+          if (waitSrcSec > remainingSrc * 0.42) {
+            // If near song end, align to half-bar (Beat 1 or 3) or next single beat so mix never runs out of audio
+            const halfBarSrc = fromSrcBeat * 2;
+            const halfPhase =
+              (((liveFromTime - fromBarOff) % halfBarSrc) + halfBarSrc) % halfBarSrc;
+            const halfWait = (halfBarSrc - halfPhase) % halfBarSrc;
+            waitSrcSec =
+              halfWait <= remainingSrc * 0.35
+                ? halfWait < 0.03
+                  ? 0
+                  : halfWait
+                : (((fromSrcBeat -
+                    ((((liveFromTime - fromBarOff) % fromSrcBeat) + fromSrcBeat) %
+                      fromSrcBeat)) %
+                    fromSrcBeat) < 0.03
+                    ? 0
+                    : (fromSrcBeat -
+                        ((((liveFromTime - fromBarOff) % fromSrcBeat) + fromSrcBeat) %
+                          fromSrcBeat)) %
+                      fromSrcBeat);
+          }
+          beatWaitMs = Math.round((waitSrcSec / Math.max(0.5, fromStartRate)) * 1000);
+        }
       }
 
       const startBlendLoop = async () => {
         if (autoTransitionDeckRef.current !== fromDeckId) return;
 
-        // Start incoming deck playback immediately synced with playbackRate
+        audioEngine.setDeckAutoControlled(fromDeckId, true);
+        audioEngine.setDeckAutoControlled(toDeckId, true);
+
+        // Start incoming deck playback immediately synced with Beat-1 playbackRate
         setDeck(toDeckId, (prev) => ({
           ...prev,
           isPlaying: true,
@@ -1473,61 +1534,72 @@ export default function App() {
 
         await audioEngine.playDeckMediaSynced(toDeckId, sync.ratio, true);
 
-        // Active PLL Phase-Lock Check (~130ms after play starts) to remove any browser play() jitter
         const activeFromEl = audioEngine.getDeckMediaElement(fromDeckId);
         const activeToEl = audioEngine.getDeckMediaElement(toDeckId);
-        if (
-          activeFromEl &&
-          activeToEl &&
-          outBpmRaw &&
-          outBpmRaw > 40 &&
-          inBpm &&
-          inBpm > 40
-        ) {
-          const fromOffset = fromDeck.track?.beatOffsetSec ?? fromDeck.track?.introStartSec ?? 0;
-          const toOffset = incomingTrack?.beatOffsetSec ?? incomingTrack?.introStartSec ?? startInAtSec;
-          const inBeatPeriod = 60 / inBpm;
+        const toBaseBpm = inBpm && inBpm > 40 ? inBpm : fromBaseBpm;
+        const toSrcBeat = 60 / Math.max(55, toBaseBpm);
+        const toBarOff =
+          incomingTrack?.barOffsetSec ??
+          incomingTrack?.beatOffsetSec ??
+          incomingTrack?.introStartSec ??
+          startInAtSec;
 
+        // Coupled Master-Tempo Bridge: ride both decks TOGETHER from outgoing BPM -> incoming BPM
+        const startEffBpm = effFromBpm;
+        const endEffBpm = sync.compatible ? sync.effectiveIncomingBpm : effFromBpm;
+        const avgMixBpm = 0.5 * (startEffBpm + endEffBpm);
+        const meanBarMs = (240 / Math.max(55, avgMixBpm)) * 1000;
+
+        let hardNudgeActive = false;
+        let pllTrim = 1;
+
+        // Stage-1 Active PLL Snap (~95ms after play starts) to kill HTMLMediaElement startup latency
+        if (activeFromEl && activeToEl && fromBaseBpm > 40 && toBaseBpm > 40) {
           autoDjPllTimerRef.current = window.setTimeout(() => {
             if (autoTransitionDeckRef.current !== fromDeckId) return;
             const pFrom =
-              ((((activeFromEl.currentTime - fromOffset) / fromBeatPeriod) % 1) + 1) % 1;
-            const pTo =
-              ((((activeToEl.currentTime - toOffset) / inBeatPeriod) % 1) + 1) % 1;
-            // Shortest signed beat error in [-0.5, +0.5] beats
+              ((((activeFromEl.currentTime - fromBarOff) / fromSrcBeat) % 1) + 1) % 1;
+            const pTo = ((((activeToEl.currentTime - toBarOff) / toSrcBeat) % 1) + 1) % 1;
             let errBeats = pFrom - pTo;
             if (errBeats > 0.5) errBeats -= 1;
             if (errBeats < -0.5) errBeats += 1;
 
-            if (Math.abs(errBeats) > 0.035) {
-              const corrDurSec = 0.24;
-              const errWallSec = errBeats * fromBeatPeriod;
-              const nudgeFactor = Math.max(0.94, Math.min(1.06, 1 + errWallSec / corrDurSec));
+            if (Math.abs(errBeats) > 0.025) {
+              hardNudgeActive = true;
+              const corrDurSec = 0.18;
+              const errWallSec = errBeats * (60 / Math.max(55, startEffBpm));
+              const nudgeFactor = Math.max(0.93, Math.min(1.07, 1 + errWallSec / corrDurSec));
               audioEngine.setDeckPlaybackRate(toDeckId, sync.ratio * nudgeFactor, true);
               window.setTimeout(() => {
-                if (autoTransitionDeckRef.current === fromDeckId) {
-                  audioEngine.setDeckPlaybackRate(toDeckId, sync.ratio, true);
-                }
+                hardNudgeActive = false;
               }, Math.round(corrDurSec * 1000));
             }
-          }, 130);
+          }, 95);
         }
 
-        showToast(`Auto DJ: ${sync.label} · Mezclando en vivo → Deck ${toDeckId}`);
+        showToast(`Auto DJ: ${sync.label} · Compás bloqueado → Deck ${toDeckId}`);
 
         const targetSide = toDeckId === 'B' ? 1 : -1;
         const startXf = mixerRef.current.crossfader;
         const latestFromTime = activeFromEl ? activeFromEl.currentTime : fromDeck.currentTime;
-        const fromDur = fromDeck.duration || fromDeck.track?.durationSec || 180;
-        const remainingFrom = Math.max(3.0, fromDur - latestFromTime);
-        // Quantized 16-beat (4-bar) club blend, gracefully bounded to remaining song time
-        const quantized16BeatMs = 16 * fromBeatPeriod * 1000;
-        const targetMixMs =
+        const remainingFromSrc = Math.max(2.5, fromDur - latestFromTime);
+        const remainingWallMs = (remainingFromSrc / Math.max(0.5, fromStartRate)) * 1000;
+
+        // Quantize transition duration strictly to an integer number of 4-beat compases (4, 2, or 1 bar)
+        const maxBudgetMs = remainingWallMs * 0.88;
+        const targetBars =
           fromDur < 45
-            ? Math.max(2800, Math.min(5600, remainingFrom * 780))
-            : Math.max(5800, Math.min(11500, Math.min(quantized16BeatMs, remainingFrom * 840)));
-        const tickMs = 45;
-        const totalSteps = Math.max(28, Math.round(targetMixMs / tickMs));
+            ? maxBudgetMs >= 2 * meanBarMs
+              ? 2
+              : 1
+            : maxBudgetMs >= 4 * meanBarMs
+            ? 4
+            : maxBudgetMs >= 2 * meanBarMs
+            ? 2
+            : 1;
+        const targetMixMs = Math.max(1800, Math.round(targetBars * meanBarMs));
+        const tickMs = 40;
+        const totalSteps = Math.max(30, Math.round(targetMixMs / tickMs));
         let step = 0;
 
         setAutoDjPhase('blending');
@@ -1539,40 +1611,100 @@ export default function App() {
           const smoothT = t * t * (3 - 2 * t);
           const xf = startXf + (targetSide - startXf) * smoothT;
 
+          // Coupled Master-Tempo Bridge (t = 0.20..0.82): both tracks glide TOGETHER to Song B's BPM!
+          let tempoRamp = 0;
+          if (t >= 0.82) {
+            tempoRamp = 1;
+          } else if (t > 0.2) {
+            const tr = (t - 0.2) / 0.62;
+            tempoRamp = tr * tr * (3 - 2 * tr);
+          }
+          const masterBpm = startEffBpm + (endEffBpm - startEffBpm) * tempoRamp;
+          const baseFromRate = (masterBpm / Math.max(40, startEffBpm)) * fromStartRate;
+          const baseToRate = sync.compatible
+            ? masterBpm / Math.max(40, sync.effectiveIncomingBpm)
+            : sync.ratio;
+
+          // Stage-2 Continuous Micro-PLL Phase Tracker during the active mix (prevents WSOLA drift!)
+          if (
+            !hardNudgeActive &&
+            t < 0.85 &&
+            activeFromEl &&
+            activeToEl &&
+            !activeFromEl.paused &&
+            !activeToEl.paused &&
+            fromBaseBpm > 40 &&
+            toBaseBpm > 40
+          ) {
+            const pFrom =
+              ((((activeFromEl.currentTime - fromBarOff) / fromSrcBeat) % 1) + 1) % 1;
+            const pTo = ((((activeToEl.currentTime - toBarOff) / toSrcBeat) % 1) + 1) % 1;
+            let errBeats = pFrom - pTo;
+            if (errBeats > 0.5) errBeats -= 1;
+            if (errBeats < -0.5) errBeats += 1;
+
+            const desiredTrim =
+              Math.abs(errBeats) > 0.018
+                ? Math.max(0.975, Math.min(1.025, 1 + errBeats * 0.38))
+                : 1;
+            pllTrim = pllTrim * 0.72 + desiredTrim * 0.28;
+          } else if (t >= 0.85) {
+            pllTrim = pllTrim * 0.6 + 0.4;
+          }
+
+          if (!hardNudgeActive) {
+            audioEngine.setDeckPlaybackRate(fromDeckId, baseFromRate, true);
+            audioEngine.setDeckPlaybackRate(toDeckId, baseToRate * pllTrim, true);
+          }
+
+          if (step % 6 === 0) {
+            setDeck(toDeckId, (prev) => ({
+              ...prev,
+              playbackRate: Number(baseToRate.toFixed(4)),
+              syncedBpm:
+                Math.abs(baseToRate - 1) <= 0.004
+                  ? null
+                  : Math.round(masterBpm * 10) / 10,
+            }));
+          }
+
           let outLow = startFromEq.low;
           let outMid = startFromEq.mid;
           let outFilter = startFromEq.filter;
-          let inLow = -20;
-          let inMid = -2.0;
-          let inFilter = 0.25;
+          let inLow = -22;
+          let inMid = -2.5;
+          let inHigh = -0.5;
+          let inFilter = 0.28;
 
-          if (t < 0.35) {
+          if (t < 0.36) {
             setAutoDjPhase('blending');
-            const p1 = t / 0.35;
-            inLow = Number((-20 + 6 * p1).toFixed(1));
-            inFilter = Number((0.25 - 0.17 * p1).toFixed(2));
-            outMid = Number((0 - 1.5 * p1).toFixed(1));
-          } else if (t <= 0.7) {
+            const p1 = t / 0.36;
+            inLow = Number((-22 + 7 * p1).toFixed(1));
+            inMid = Number((-2.5 + 1.3 * p1).toFixed(1));
+            inHigh = Number((-0.5 + 0.5 * p1).toFixed(1));
+            inFilter = Number((0.28 - 0.18 * p1).toFixed(2));
+            outMid = Number((0 - 1.0 * p1).toFixed(1));
+          } else if (t <= 0.66) {
+            // Centered right at t = 0.50 -> exact Beat 1 of Bar 3 (4-bar mix) or Bar 2 (2-bar mix)!
             setAutoDjPhase('bass-swap');
-            const s = (t - 0.35) / 0.35;
-            inLow = Number((-14 + 14 * s).toFixed(1));
-            outLow = Number((0 - 20 * s).toFixed(1));
-            inMid = Number((-2.0 + 2.0 * s).toFixed(1));
-            outMid = Number((-1.5 - 2.0 * s).toFixed(1));
-            inFilter = Number((0.08 * (1 - s)).toFixed(2));
+            const s = (t - 0.36) / 0.3;
+            const smoothS = s * s * (3 - 2 * s);
+            inLow = Number((-15 + 15 * smoothS).toFixed(1));
+            outLow = Number((0 - 22 * smoothS).toFixed(1));
+            inMid = Number((-1.2 + 1.2 * smoothS).toFixed(1));
+            inHigh = 0;
+            outMid = Number((-1.0 - 2.8 * smoothS).toFixed(1));
+            inFilter = Number((0.1 * (1 - smoothS)).toFixed(2));
           } else {
             setAutoDjPhase('gliding');
-            const sExit = (t - 0.7) / 0.3;
+            const sExit = (t - 0.66) / 0.34;
             inLow = 0;
             inMid = 0;
+            inHigh = 0;
             inFilter = 0;
-            outLow = -20;
-            outMid = Number((-3.5 - 5.5 * sExit).toFixed(1));
-            outFilter = Number((0.42 * sExit).toFixed(2));
-
-            // Gentle tempo glide back toward 1.00 during the tail of the blend
-            const glideRate = sync.ratio + (1 - sync.ratio) * (sExit * 0.45);
-            audioEngine.setDeckPlaybackRate(toDeckId, glideRate, true);
+            outLow = -22;
+            outMid = Number((-3.8 - 5.7 * sExit).toFixed(1));
+            outFilter = Number((0.48 * sExit).toFixed(2));
           }
 
           setMixer((prev) => ({
@@ -1586,7 +1718,7 @@ export default function App() {
             },
             [toDeckId]: {
               ...prev[toDeckId],
-              high: 0,
+              high: inHigh,
               mid: inMid,
               low: inLow,
               filter: inFilter,
@@ -1601,6 +1733,7 @@ export default function App() {
             }
 
             // Stop outgoing track & restore clean neutral EQ on both channels
+            audioEngine.setDeckAutoControlled(fromDeckId, false);
             setDeck(fromDeckId, (prev) => ({
               ...prev,
               isPlaying: false,
@@ -1619,15 +1752,14 @@ export default function App() {
 
             autoTransitionDeckRef.current = null;
 
-            // Finish gliding incoming playbackRate smoothly back to 1.00 (studio tempo)
-            const currentRate = sync.ratio + (1 - sync.ratio) * 0.45;
-            if (Math.abs(currentRate - 1) > 0.005) {
+            // Incoming track has ALREADY smoothly arrived at its natural BPM (1.0000) via the coupled bridge!
+            if (Math.abs(baseToRate - 1) > 0.005) {
               let gStep = 0;
-              const gSteps = 30;
+              const gSteps = 24;
               autoDjGlideTimerRef.current = window.setInterval(() => {
                 gStep++;
                 const gt = gStep / gSteps;
-                const nextRate = currentRate + (1 - currentRate) * gt;
+                const nextRate = baseToRate + (1 - baseToRate) * gt;
                 audioEngine.setDeckPlaybackRate(toDeckId, nextRate, true);
                 setDeck(toDeckId, (prev) => ({
                   ...prev,
@@ -1642,10 +1774,12 @@ export default function App() {
                     window.clearInterval(autoDjGlideTimerRef.current);
                     autoDjGlideTimerRef.current = null;
                   }
+                  audioEngine.setDeckAutoControlled(toDeckId, false);
                   setAutoDjPhase(mixerRef.current.autoMixEnabled ? 'standby' : 'idle');
                 }
-              }, 80);
+              }, 70);
             } else {
+              audioEngine.setDeckAutoControlled(toDeckId, false);
               setDeck(toDeckId, (prev) => ({
                 ...prev,
                 playbackRate: 1,
@@ -1666,7 +1800,7 @@ export default function App() {
         }, tickMs);
       };
 
-      if (beatWaitMs > 15) {
+      if (beatWaitMs > 12) {
         autoDjBeatTimerRef.current = window.setTimeout(() => {
           startBlendLoop();
         }, beatWaitMs);
@@ -1719,9 +1853,15 @@ export default function App() {
       ensureOppositeDeckQueued(deckId, activeDeck.track, false);
     }
 
+    // Anticipate ~1.5 beats before Beat-1 of the Coro/Outro compás so media preparation finishes cleanly ON the downbeat
+    const baseBpm = activeDeck.track?.bpm || 100;
+    const beatSrcSec = 60 / Math.max(55, baseBpm);
+    const prepareAtSec = Math.max(2.5, triggerAtSec - Math.min(1.35, beatSrcSec * 1.6));
+
     if (
-      currentTime >= triggerAtSec &&
-      autoTransitionDeckRef.current !== deckId
+      currentTime >= prepareAtSec &&
+      autoTransitionDeckRef.current !== deckId &&
+      autoTransitionDeckRef.current === null
     ) {
       triggerAutoMixTransition(deckId, false);
     }

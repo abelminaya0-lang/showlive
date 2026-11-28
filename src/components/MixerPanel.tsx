@@ -411,13 +411,13 @@ export const MixerPanel: React.FC<MixerPanelProps> = ({
             {!mixer.autoMixEnabled
               ? 'AUTO DJ'
               : autoDjStatus?.phase === 'cueing'
-              ? 'SYNC BPM'
+              ? 'COMPÁS SYNC'
               : autoDjStatus?.phase === 'bass-swap'
               ? 'BASS SWAP'
               : autoDjStatus?.phase === 'blending'
               ? 'MEZCLANDO'
               : autoDjStatus?.phase === 'gliding'
-              ? 'TEMPO GLIDE'
+              ? 'BPM LOCK'
               : 'AUTO DJ ON'}
           </span>
         </button>
