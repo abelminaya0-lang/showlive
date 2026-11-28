@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { LogOut, Maximize2, Mic, Minimize2, Settings, User, Users } from 'lucide-react';
 import { IAModelConfig, WorkspaceMode } from '../types/showlive';
+import { DownloadAppButton } from './PWAInstallControls';
 
 interface TopBarProps {
   workspaceMode: WorkspaceMode;
@@ -81,7 +82,7 @@ export const TopBar: React.FC<TopBarProps> = ({
   };
 
   return (
-    <header className="hidden md:flex relative h-12 w-full bg-[#101218] border-b border-white/10 px-2.5 lg:px-4 items-center justify-between gap-2 lg:gap-4 shrink-0 select-none">
+    <header className="hidden md:flex relative h-11 xl:h-12 w-full bg-[#101218] border-b border-white/10 px-2.5 lg:px-4 items-center justify-between gap-2 lg:gap-4 shrink-0 select-none">
       {/* Bottom Tri-Color Hardware Accent Line */}
       <div className="studio-tricolor-bar absolute bottom-0 inset-x-0 h-[2px] opacity-90 pointer-events-none" />
 
@@ -171,23 +172,14 @@ export const TopBar: React.FC<TopBarProps> = ({
           <span>IA Model</span>
         </button>
 
-        {/* Auth / Profile button */}
-        {!userEmail && onOpenLogin ? (
-          <button
-            type="button"
-            onClick={onOpenLogin}
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-md bg-[#141720] hover:bg-[#1B202C] border border-[#22D3EE]/60 text-xs font-bold text-[#22D3EE] transition-colors cursor-pointer whitespace-nowrap shrink-0 shadow-[0_0_10px_rgba(34,211,238,0.2)]"
-            title="Iniciar sesión con Google o correo"
-          >
-            <User className="w-3.5 h-3.5 text-[#22D3EE]" />
-            <span>Iniciar sesión</span>
-          </button>
-        ) : (
+        {/* Direct PC/Tablet PWA Installer + Authenticated Profile */}
+        <DownloadAppButton variant="desktop" />
+        {userEmail && (
           <button
             type="button"
             onClick={onLogout}
             className="flex items-center gap-2 px-2.5 py-1 rounded-md bg-[#141720] hover:bg-[#1B202C] border border-[#EC287B]/50 text-xs font-semibold text-slate-200 transition-colors cursor-pointer whitespace-nowrap shrink-0"
-            title={userEmail ? `Sesión: ${userEmail} (Salir)` : 'Cerrar sesión'}
+            title={`Sesión: ${userEmail} (Salir)`}
           >
             {userPhoto ? (
               <img

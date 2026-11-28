@@ -419,6 +419,8 @@ interface AiModelModalProps {
   onLogout?: () => void;
   isAdmin?: boolean;
   onOpenAdminDashboard?: () => void;
+  userEmail?: string | null;
+  onOpenLogin?: () => void;
 }
 
 export const AiModelModal: React.FC<AiModelModalProps> = ({
@@ -428,6 +430,8 @@ export const AiModelModal: React.FC<AiModelModalProps> = ({
   onLogout,
   isAdmin,
   onOpenAdminDashboard,
+  userEmail,
+  onOpenLogin,
 }) => {
   return (
     <div className="fixed inset-0 z-50 bg-black/75 backdrop-blur-sm flex items-center justify-center p-4">
@@ -522,7 +526,7 @@ export const AiModelModal: React.FC<AiModelModalProps> = ({
           )}
 
           <div className="flex items-center justify-between gap-2 pt-2">
-            {onLogout ? (
+            {userEmail && onLogout ? (
               <button
                 type="button"
                 onClick={() => {
@@ -532,6 +536,17 @@ export const AiModelModal: React.FC<AiModelModalProps> = ({
                 className="px-3.5 py-2 rounded-lg bg-[#161B26] hover:bg-red-600/20 border border-white/10 hover:border-red-500/40 text-xs font-semibold text-slate-300 hover:text-red-300 cursor-pointer"
               >
                 Cerrar sesión
+              </button>
+            ) : !userEmail && onOpenLogin ? (
+              <button
+                type="button"
+                onClick={() => {
+                  onClose();
+                  onOpenLogin();
+                }}
+                className="px-3.5 py-2 rounded-lg bg-[#161B26] hover:bg-cyan-600/20 border border-cyan-500/35 text-xs font-semibold text-cyan-300 cursor-pointer"
+              >
+                Cuenta / Iniciar sesión
               </button>
             ) : (
               <span />

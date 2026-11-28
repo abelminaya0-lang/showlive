@@ -509,13 +509,13 @@ export const DeckPanel: React.FC<DeckPanelProps> = ({
   ) : null;
 
   const PitchAndTransportStrip = (
-    <div className="hidden md:flex relative w-[56px] lg:w-[62px] xl:w-[68px] shrink-0 flex-col items-center justify-between py-1.5 xl:py-2 px-1 xl:px-1.5 bg-[#101218] border border-white/15 rounded-lg select-none">
+    <div className="hidden md:flex relative w-[52px] lg:w-[58px] xl:w-[68px] shrink-0 flex-col items-center justify-between py-1 xl:py-2 px-1 xl:px-1.5 bg-[#101218] border border-white/15 rounded-lg select-none">
       {/* Musical Note & Semitone readout */}
       <div className="flex flex-col items-center w-full">
         <button
           type="button"
           onClick={() => setShowKeyPicker((v) => !v)}
-          className={`w-full py-0.5 xl:py-1 px-0.5 xl:px-1 rounded border text-center transition-colors cursor-pointer mb-1 xl:mb-1.5 ${
+          className={`w-full py-0.5 xl:py-1 px-0.5 xl:px-1 rounded border text-center transition-colors cursor-pointer mb-0.5 lg:mb-1 xl:mb-1.5 ${
             deck.pitchSemitones === 0
               ? 'bg-[#0A0B0F] border-[#22D3EE]/55 text-[#22D3EE] hover:bg-[#22D3EE]/15'
               : deck.pitchSemitones > 0
@@ -528,7 +528,7 @@ export const DeckPanel: React.FC<DeckPanelProps> = ({
             {deck.pitchSemitones === 0 && !deck.track?.musicalKey ? '0' : transposed.latin}
           </span>
           {(deck.pitchSemitones !== 0 || deck.track?.musicalKey) && (
-            <span className="hidden lg:block text-[9px] font-mono-tabular opacity-80 leading-none mt-0.5">
+            <span className="hidden lg:block text-[8.5px] xl:text-[9px] font-mono-tabular opacity-80 leading-none mt-0.5">
               {deck.pitchSemitones > 0
                 ? `+${deck.pitchSemitones}`
                 : deck.pitchSemitones === 0
@@ -540,25 +540,45 @@ export const DeckPanel: React.FC<DeckPanelProps> = ({
 
         {/* Vertical TONO slider */}
         <div
-          className="relative h-14 lg:h-18 xl:h-24 w-6 flex items-center justify-center cursor-ns-resize touch-none"
+          role="slider"
+          aria-label={`Tono Deck ${deck.id}`}
+          aria-valuemin={-12}
+          aria-valuemax={12}
+          aria-valuenow={deck.pitchSemitones}
+          className="relative h-12 lg:h-14 xl:h-24 w-6 flex items-center justify-center cursor-ns-resize touch-none"
           onDoubleClick={() => onChangePitch(0)}
           title="Doble clic para volver al tono original (0)"
           onPointerDown={(e) => {
-            const rect = e.currentTarget.getBoundingClientRect();
+            e.preventDefault();
+            const el = e.currentTarget;
+            const pointerId = e.pointerId;
+            try {
+              el.setPointerCapture?.(pointerId);
+            } catch {
+              // Ignore
+            }
+            const rect = el.getBoundingClientRect();
             const updateFromY = (clientY: number) => {
               const rel =
-                1 - Math.max(0, Math.min(1, (clientY - rect.top) / rect.height));
+                1 - Math.max(0, Math.min(1, (clientY - rect.top) / Math.max(1, rect.height)));
               const semi = Math.round(rel * 24 - 12);
               onChangePitch(semi);
             };
             updateFromY(e.clientY);
             const onMove = (ev: PointerEvent) => updateFromY(ev.clientY);
             const onUp = () => {
+              try {
+                el.releasePointerCapture?.(pointerId);
+              } catch {
+                // Ignore
+              }
               window.removeEventListener('pointermove', onMove);
               window.removeEventListener('pointerup', onUp);
+              window.removeEventListener('pointercancel', onUp);
             };
             window.addEventListener('pointermove', onMove);
             window.addEventListener('pointerup', onUp);
+            window.addEventListener('pointercancel', onUp);
           }}
         >
           <div className="w-1 h-full bg-[#090A0E] rounded-full relative border border-white/10">
@@ -573,12 +593,12 @@ export const DeckPanel: React.FC<DeckPanelProps> = ({
           </div>
         </div>
 
-        <span className="text-[8px] lg:text-[9px] font-extrabold tracking-wider text-[#FACC15] mt-0.5 lg:mt-1">
+        <span className="text-[8px] lg:text-[9px] font-extrabold tracking-wider text-[#FACC15] mt-0.5">
           TONO
         </span>
 
         {/* - / + Pitch Step Buttons */}
-        <div className="flex items-center justify-center gap-0.5 lg:gap-1 mt-0.5 lg:mt-1">
+        <div className="flex items-center justify-center gap-0.5 lg:gap-1 mt-0.5">
           <button
             type="button"
             onClick={() => onChangePitch(Math.max(-12, deck.pitchSemitones - 1))}
@@ -599,11 +619,11 @@ export const DeckPanel: React.FC<DeckPanelProps> = ({
       </div>
 
       {/* CUE & PLAY circular buttons */}
-      <div className="flex flex-col items-center gap-1.5 mt-1.5">
+      <div className="flex flex-col items-center gap-1 lg:gap-1.5 mt-1">
         <button
           type="button"
           onClick={onCue}
-          className="w-9 h-9 rounded-full border-2 border-[#FACC15] bg-[#0A0B0F] hover:bg-[#FACC15]/20 text-[#FACC15] text-[9px] font-extrabold tracking-wide flex items-center justify-center transition-colors cursor-pointer active:scale-95 shadow-[0_0_10px_rgba(250,204,21,0.25)]"
+          className="w-8 h-8 lg:w-[34px] lg:h-[34px] xl:w-9 xl:h-9 rounded-full border-2 border-[#FACC15] bg-[#0A0B0F] hover:bg-[#FACC15]/20 text-[#FACC15] text-[8.5px] xl:text-[9px] font-extrabold tracking-wide flex items-center justify-center transition-colors cursor-pointer active:scale-95 shadow-[0_0_10px_rgba(250,204,21,0.25)]"
           title="CUE: Fijar o volver al punto Cue"
         >
           CUE
@@ -612,11 +632,11 @@ export const DeckPanel: React.FC<DeckPanelProps> = ({
         <button
           type="button"
           onClick={onTogglePlay}
-          className={`w-9 h-9 rounded-full border-2 flex items-center justify-center transition-all cursor-pointer active:scale-95 ${
+          className={`w-8 h-8 lg:w-[34px] lg:h-[34px] xl:w-9 xl:h-9 rounded-full border-2 flex items-center justify-center transition-all cursor-pointer active:scale-95 ${
             deck.isPlaying
               ? deck.id === 'A'
-                ? 'border-[#22D3EE] bg-[#22D3EE] text-[#090A0E] shadow-[0_0_16px_rgba(34,211,238,0.6)]'
-                : 'border-[#EC287B] bg-[#EC287B] text-white shadow-[0_0_16px_rgba(236,40,123,0.6)]'
+                ? 'border-[#22D3EE] bg-[#22D3EE] text-[#090A0E] shadow-[0_0_18px_rgba(34,211,238,0.8)] animate-pulse'
+                : 'border-[#EC287B] bg-[#EC287B] text-white shadow-[0_0_18px_rgba(236,40,123,0.8)] animate-pulse'
               : deck.id === 'A'
               ? 'border-[#22D3EE] bg-[#0A0B0F] hover:bg-[#22D3EE]/15 text-[#22D3EE]'
               : 'border-[#EC287B] bg-[#0A0B0F] hover:bg-[#EC287B]/15 text-[#EC287B]'
@@ -624,9 +644,9 @@ export const DeckPanel: React.FC<DeckPanelProps> = ({
           title={deck.isPlaying ? 'Pausar Deck' : 'Reproducir Deck'}
         >
           {deck.isPlaying ? (
-            <Pause className="w-4 h-4 fill-current" />
+            <Pause className="w-3.5 h-3.5 xl:w-4 xl:h-4 fill-current" />
           ) : (
-            <Play className="w-4 h-4 fill-current ml-0.5" />
+            <Play className="w-3.5 h-3.5 xl:w-4 xl:h-4 fill-current ml-0.5" />
           )}
         </button>
       </div>
@@ -640,9 +660,13 @@ export const DeckPanel: React.FC<DeckPanelProps> = ({
         className={`${
           deck.isExpanded
             ? 'fixed inset-3 md:inset-4 z-50 bg-[#0A0B0F] border-2 border-[#FACC15] rounded-2xl shadow-2xl p-3 md:p-4 flex flex-col'
-            : `relative flex-1 min-h-[120px] md:min-h-[140px] lg:min-h-[175px] xl:min-h-[210px] bg-[#0B0D12] border ${
+            : `relative flex-1 min-h-[116px] md:min-h-[116px] lg:min-h-[126px] xl:min-h-[210px] bg-[#0B0D12] border ${
                 isEndingSoon
-                  ? 'border-red-500/90'
+                  ? 'border-2 border-red-500 studio-ending-blink'
+                  : deck.isPlaying
+                  ? deck.id === 'A'
+                    ? 'border-[#22D3EE]/75 studio-deck-pulse-a'
+                    : 'border-[#EC287B]/75 studio-deck-pulse-b'
                   : deck.id === 'A'
                   ? 'border-[#22D3EE]/35'
                   : 'border-[#EC287B]/35'
@@ -650,30 +674,41 @@ export const DeckPanel: React.FC<DeckPanelProps> = ({
         }`}
       >
         {/* Desktop & Tablet Deck Header Strip */}
-        <div className="hidden md:flex flex-wrap xl:flex-nowrap items-center justify-between gap-1.5 xl:gap-2 px-2 xl:px-3 py-1.5 xl:py-2 bg-[#101218] border-b border-white/10 z-20">
-          <div className="flex items-center gap-2 min-w-0">
+        <div className="hidden md:flex flex-wrap xl:flex-nowrap items-center justify-between gap-1 xl:gap-2 px-1.5 lg:px-2 xl:px-3 py-1 xl:py-2 bg-[#101218] border-b border-white/10 z-20">
+          <div className="flex items-center gap-1.5 xl:gap-2 min-w-0">
             <span
-              className={`px-2 py-0.5 rounded border text-[11px] font-extrabold tracking-wide whitespace-nowrap shrink-0 ${
+              className={`inline-flex items-center gap-1 px-1.5 xl:px-2 py-0.5 rounded border text-[10px] xl:text-[11px] font-extrabold tracking-wide whitespace-nowrap shrink-0 ${
                 deck.id === 'A'
                   ? 'bg-[#22D3EE] border-[#22D3EE] text-[#090A0E]'
                   : 'bg-[#EC287B] border-[#EC287B] text-white'
               }`}
             >
-              DECK {deck.id}
+              {(deck.isPlaying || isEndingSoon) && (
+                <span
+                  className={`w-2 h-2 rounded-full ${
+                    isEndingSoon
+                      ? 'bg-red-600 shadow-[0_0_8px_#EF4444] studio-led-blink'
+                      : deck.id === 'A'
+                      ? 'bg-[#090A0E] studio-led-beat'
+                      : 'bg-white shadow-[0_0_6px_#FFF] studio-led-beat'
+                  }`}
+                />
+              )}
+              <span>DECK {deck.id}</span>
             </span>
             {deck.track && deck.source === 'local' && (
-              <span className="text-xs font-semibold text-slate-100 truncate">
+              <span className="text-[11px] xl:text-xs font-semibold text-slate-100 truncate">
                 {deck.track.name}
               </span>
             )}
             {deck.source === 'youtube' && deck.youtubeTitle && (
-              <span className="text-xs font-semibold text-[#FACC15] truncate">
+              <span className="text-[11px] xl:text-xs font-semibold text-[#FACC15] truncate">
                 {deck.youtubeTitle}
               </span>
             )}
           </div>
 
-          <div className="flex items-center gap-1.5 shrink-0">
+          <div className="flex items-center gap-1 xl:gap-1.5 shrink-0">
             {/* 1-Tap Vocal Removal (Pista Sin Voz) + Automatic Intro Loop for Local Tracks */}
             {deck.source === 'local' && (
               <>
@@ -682,7 +717,7 @@ export const DeckPanel: React.FC<DeckPanelProps> = ({
                     <button
                       type="button"
                       onClick={handleToggleIntroLoop}
-                      className={`inline-flex items-center gap-1 px-2 py-0.5 text-[10px] font-extrabold transition-colors cursor-pointer whitespace-nowrap ${
+                      className={`inline-flex items-center gap-1 px-1.5 xl:px-2 py-0.5 text-[9.5px] xl:text-[10px] font-extrabold transition-colors cursor-pointer whitespace-nowrap ${
                         introLoopActive
                           ? 'bg-[#22D3EE] text-[#090A0E]'
                           : 'text-[#22D3EE] hover:bg-[#22D3EE]/15'
@@ -696,7 +731,7 @@ export const DeckPanel: React.FC<DeckPanelProps> = ({
                       <button
                         type="button"
                         onClick={() => onCaptureIntroToPad(deck.id)}
-                        className="px-1.5 py-0.5 text-[10px] font-extrabold border-l border-white/10 text-[#FACC15] hover:bg-[#FACC15]/15 cursor-pointer whitespace-nowrap"
+                        className="px-1.5 py-0.5 text-[9.5px] xl:text-[10px] font-extrabold border-l border-white/10 text-[#FACC15] hover:bg-[#FACC15]/15 cursor-pointer whitespace-nowrap"
                         title="Tomar automáticamente la primera cola de inicio y mandarla al Sampler como base"
                       >
                         → Pad
@@ -708,7 +743,7 @@ export const DeckPanel: React.FC<DeckPanelProps> = ({
                 <button
                   type="button"
                   onClick={handleToggleVocalRemoval}
-                  className={`inline-flex items-center gap-1 px-2.5 py-0.5 rounded text-[11px] font-extrabold border transition-all cursor-pointer whitespace-nowrap ${
+                  className={`inline-flex items-center gap-1 px-1.5 xl:px-2.5 py-0.5 rounded text-[10px] xl:text-[11px] font-extrabold border transition-all cursor-pointer whitespace-nowrap ${
                     isVocalRemoved
                       ? 'bg-[#FACC15] border-[#FACC15] text-[#090A0E] shadow-[0_0_12px_rgba(250,204,21,0.55)]'
                       : 'bg-[#0A0B0F] hover:bg-[#191D29] text-[#FACC15] border-[#FACC15]/50'
@@ -733,7 +768,7 @@ export const DeckPanel: React.FC<DeckPanelProps> = ({
                 <button
                   type="button"
                   onClick={() => onChangeStemMode('full')}
-                  className="px-2 py-0.5 rounded bg-[#FACC15]/15 border border-[#FACC15]/60 text-[10px] font-bold text-[#FACC15] hover:bg-[#FACC15]/30 cursor-pointer whitespace-nowrap"
+                  className="px-1.5 xl:px-2 py-0.5 rounded bg-[#FACC15]/15 border border-[#FACC15]/60 text-[9.5px] xl:text-[10px] font-bold text-[#FACC15] hover:bg-[#FACC15]/30 cursor-pointer whitespace-nowrap"
                   title="Clic para restaurar pista completa"
                 >
                   {deck.stemMode === 'vocals' ? 'Solo Voz' : 'Ritmo & Bajo'}
@@ -746,7 +781,7 @@ export const DeckPanel: React.FC<DeckPanelProps> = ({
               onClick={() =>
                 onChangeSource(deck.source === 'local' ? 'youtube' : 'local')
               }
-              className={`px-2.5 py-0.5 rounded text-[11px] font-bold border transition-colors cursor-pointer whitespace-nowrap ${
+              className={`px-1.5 xl:px-2.5 py-0.5 rounded text-[10px] xl:text-[11px] font-bold border transition-colors cursor-pointer whitespace-nowrap ${
                 deck.source === 'local'
                   ? 'bg-[#0A0B0F] hover:bg-[#191D29] text-[#22D3EE] border-[#22D3EE]/60'
                   : 'bg-[#EC287B] hover:bg-[#F43F8E] text-white border-[#EC287B]'
@@ -774,15 +809,22 @@ export const DeckPanel: React.FC<DeckPanelProps> = ({
 
         {/* Viewport Body */}
         <div className="relative flex-1 flex items-center justify-center overflow-hidden studio-wave-grid">
-          {/* Ending-Soon Red Warning Banner matching mobile reference */}
+          {/* Ending-Soon Red/Amber Blinking Light Warning Banner */}
           {isEndingSoon && (
-            <div className="absolute top-2 inset-x-1.5 z-30 flex items-center justify-center pointer-events-none">
-              <div className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-red-600/95 text-white shadow-[0_0_16px_rgba(239,68,68,0.65)] border border-red-300/40">
+            <div
+              className={`absolute inset-x-1.5 z-30 flex items-center justify-center pointer-events-none ${
+                deck.source === 'local' && deck.track
+                  ? 'top-9 md:top-10 xl:top-11'
+                  : 'top-2'
+              }`}
+            >
+              <div className="inline-flex items-center gap-1.5 px-2.5 py-0.5 md:py-1 rounded-full bg-red-600/95 text-white shadow-[0_0_22px_rgba(239,68,68,0.85)] border border-yellow-300/70 animate-pulse">
+                <span className="w-2 h-2 rounded-full bg-yellow-300 studio-led-blink shrink-0" />
                 <AlertTriangle className="w-3 h-3 shrink-0" />
                 <span className="text-[9px] lg:text-[10px] font-extrabold tracking-wider uppercase text-center leading-tight">
                   PISTA POR TERMINAR
                 </span>
-                <AlertTriangle className="w-3 h-3 shrink-0 hidden sm:inline" />
+                <span className="w-2 h-2 rounded-full bg-yellow-300 studio-led-blink shrink-0 hidden sm:inline-block" />
               </div>
             </div>
           )}

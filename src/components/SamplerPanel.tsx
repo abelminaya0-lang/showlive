@@ -210,12 +210,12 @@ export const SamplerPanel: React.FC<SamplerPanelProps> = ({
               className={`relative rounded-md border transition-all flex flex-col items-center justify-center p-1 select-none cursor-pointer overflow-hidden ${
                 isFullPadsView
                   ? 'min-h-[76px] md:min-h-[90px] xl:min-h-[76px]'
-                  : 'h-14 md:h-[64px] lg:h-[60px] xl:h-[52px]'
+                  : 'h-14 md:h-[58px] lg:h-[54px] xl:h-[52px]'
               } ${
                 isLooping
-                  ? 'ring-2 ring-[#22D3EE] border-white shadow-[0_0_18px_rgba(34,211,238,0.75)] animate-pulse'
+                  ? 'ring-2 ring-[#22D3EE] border-white shadow-[0_0_20px_rgba(34,211,238,0.85)] animate-pulse'
                   : isActive
-                  ? 'scale-95 ring-2 ring-[#FACC15] border-[#FACC15] shadow-[0_0_16px_rgba(250,204,21,0.55)]'
+                  ? 'scale-95 ring-2 ring-[#FACC15] border-[#FACC15] shadow-[0_0_18px_rgba(250,204,21,0.75)]'
                   : isEmpty
                   ? 'border-white/10 hover:border-[#22D3EE]/50 text-slate-500'
                   : 'border-white/25 hover:brightness-110 shadow-md'
@@ -228,6 +228,9 @@ export const SamplerPanel: React.FC<SamplerPanelProps> = ({
                   : `${pad.label} (Atajo: ${pad.shortcut} | Clic Derecho = Opciones / Loop)`
               }
             >
+              {isLooping && (
+                <span className="absolute top-1 left-1 w-2 h-2 rounded-full bg-white shadow-[0_0_8px_#22D3EE] studio-led-blink" />
+              )}
               {padLoopTag && !isEmpty && (
                 <span
                   className={`absolute top-0.5 right-0.5 px-1 py-[1px] rounded text-[7.5px] font-extrabold leading-none flex items-center gap-0.5 ${
@@ -277,7 +280,7 @@ export const SamplerPanel: React.FC<SamplerPanelProps> = ({
       className={`${
         isFullPadsView
           ? 'w-full h-full flex'
-          : 'w-full md:w-[395px] lg:w-[530px] xl:w-[480px] shrink-0 flex'
+          : 'w-full md:w-[400px] lg:w-[495px] xl:w-[480px] shrink-0 flex'
       } gap-1.5`}
     >
       {/* Vertical CERRAR SAMPLER tab (hidden in full Pads view and on phone) */}

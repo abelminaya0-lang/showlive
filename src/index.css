@@ -42,6 +42,68 @@
   background: linear-gradient(90deg, #facc15 0%, #ec287b 50%, #22d3ee 100%);
 }
 
+@keyframes studio-ending-flash {
+  0%, 100% {
+    border-color: rgba(239, 68, 68, 0.98);
+    box-shadow: 0 0 22px rgba(239, 68, 68, 0.65), inset 0 0 18px rgba(239, 68, 68, 0.22);
+  }
+  50% {
+    border-color: rgba(250, 204, 21, 0.95);
+    box-shadow: 0 0 8px rgba(250, 204, 21, 0.45), inset 0 0 6px rgba(239, 68, 68, 0.08);
+  }
+}
+
+@keyframes studio-led-blink {
+  0%, 100% {
+    opacity: 1;
+    transform: scale(1);
+    filter: brightness(1.25);
+  }
+  50% {
+    opacity: 0.28;
+    transform: scale(0.88);
+    filter: brightness(0.7);
+  }
+}
+
+@keyframes studio-deck-light-a {
+  0%, 100% {
+    box-shadow: 0 0 18px rgba(34, 211, 238, 0.35), inset 0 0 10px rgba(34, 211, 238, 0.08);
+  }
+  50% {
+    box-shadow: 0 0 8px rgba(34, 211, 238, 0.14), inset 0 0 4px rgba(34, 211, 238, 0.03);
+  }
+}
+
+@keyframes studio-deck-light-b {
+  0%, 100% {
+    box-shadow: 0 0 18px rgba(236, 40, 123, 0.38), inset 0 0 10px rgba(236, 40, 123, 0.08);
+  }
+  50% {
+    box-shadow: 0 0 8px rgba(236, 40, 123, 0.14), inset 0 0 4px rgba(236, 40, 123, 0.03);
+  }
+}
+
+.studio-ending-blink {
+  animation: studio-ending-flash 0.65s ease-in-out infinite;
+}
+
+.studio-led-blink {
+  animation: studio-led-blink 0.55s ease-in-out infinite;
+}
+
+.studio-led-beat {
+  animation: studio-led-blink 0.48s ease-in-out infinite;
+}
+
+.studio-deck-pulse-a {
+  animation: studio-deck-light-a 0.9s ease-in-out infinite;
+}
+
+.studio-deck-pulse-b {
+  animation: studio-deck-light-b 0.9s ease-in-out infinite;
+}
+
 /* Custom sleek dark studio scrollbars */
 ::-webkit-scrollbar {
   width: 6px;

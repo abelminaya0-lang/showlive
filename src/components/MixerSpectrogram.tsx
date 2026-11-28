@@ -296,12 +296,12 @@ export const MixerSpectrogram: React.FC<MixerSpectrogramProps> = ({ compact = fa
   }, []);
 
   return (
-    <div className="w-full shrink-0 rounded-md bg-[#07090D] border border-white/15 px-2 py-1.5 flex flex-col gap-1 shadow-inner">
+    <div className="w-full shrink-0 rounded-md bg-[#07090D] border border-white/15 px-1.5 xl:px-2 py-1 xl:py-1.5 flex flex-col gap-0.5 xl:gap-1 shadow-inner">
       {/* Header row: Title + Mode Toggle */}
       <div className="flex items-center justify-between gap-1.5 leading-none">
         <div className="flex items-center gap-1.5">
           <span className="w-1.5 h-1.5 rounded-full bg-[#22D3EE] shadow-[0_0_6px_rgba(34,211,238,0.85)]" />
-          <span className="text-[9px] font-extrabold uppercase tracking-[0.12em] text-slate-300">
+          <span className="text-[8.5px] xl:text-[9px] font-extrabold uppercase tracking-[0.12em] text-slate-300">
             ESPECTROGRAMA MASTER
           </span>
         </div>
@@ -309,7 +309,7 @@ export const MixerSpectrogram: React.FC<MixerSpectrogramProps> = ({ compact = fa
         <button
           type="button"
           onClick={() => setMode((m) => (m === 'spectrum' ? 'waterfall' : 'spectrum'))}
-          className="px-1.5 py-[2px] rounded border border-[#FACC15]/45 bg-[#11131A] hover:bg-[#191D28] text-[8.5px] font-extrabold uppercase tracking-wider text-[#FACC15] cursor-pointer transition-colors"
+          className="px-1.5 py-[2px] rounded border border-[#FACC15]/45 bg-[#11131A] hover:bg-[#191D28] text-[8px] xl:text-[8.5px] font-extrabold uppercase tracking-wider text-[#FACC15] cursor-pointer transition-colors"
           title="Cambiar vista entre Barras de Espectro y Cascada de Frecuencias"
         >
           {mode === 'spectrum' ? 'BARRAS' : 'CASCADA'}
@@ -320,7 +320,7 @@ export const MixerSpectrogram: React.FC<MixerSpectrogramProps> = ({ compact = fa
       <div
         ref={containerRef}
         className={`w-full relative rounded-[4px] overflow-hidden border border-white/10 bg-[#07090D] ${
-          compact ? 'h-[38px]' : 'h-[44px]'
+          compact ? 'h-[30px]' : 'h-[36px] md:h-[24px] lg:h-[26px] xl:h-[44px]'
         }`}
       >
         <canvas ref={canvasRef} className="block w-full h-full" />

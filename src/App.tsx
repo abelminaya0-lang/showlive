@@ -21,6 +21,7 @@ import {
   getOrCreateDemoTrackUrl,
 } from './audio/demoTracks';
 import { LandingView } from './components/LandingView';
+import { DownloadAppButton, OfflineIndicator } from './components/PWAInstallControls';
 import {
   DRIVE_REDIRECT_UI_FLAG,
   auth,
@@ -2057,19 +2058,8 @@ export default function App() {
               Dashboard
             </button>
           )}
-          {!authUser ? (
-            <button
-              type="button"
-              onClick={() => {
-                setAuthError(null);
-                setAuthNotice(null);
-                setShowLoginScreen(true);
-              }}
-              className="h-8 px-2.5 rounded bg-[#141720] border border-[#22D3EE]/60 text-[11px] font-bold text-[#22D3EE] cursor-pointer shrink-0"
-            >
-              Entrar
-            </button>
-          ) : (
+          <DownloadAppButton variant="mobile" />
+          {authUser && (
             <button
               type="button"
               onClick={handleSignOut}
@@ -2152,8 +2142,8 @@ export default function App() {
             workspaceMode === 'pads'
               ? 'fixed -left-[10000px] top-0 w-[800px] h-[360px] opacity-0 pointer-events-none'
               : mobileTab === 'decks' || mobileTab === 'mixer'
-              ? 'flex flex-col flex-1 min-h-0 gap-2 md:flex-none md:flex-row md:items-stretch md:gap-2 xl:gap-2.5 md:h-[40%] lg:h-[42%] xl:h-[50%] shrink-0'
-              : 'fixed -left-[10000px] top-0 w-[720px] h-[320px] opacity-0 pointer-events-none md:static md:left-auto md:top-auto md:w-auto md:opacity-100 md:pointer-events-auto md:flex md:flex-none md:flex-row md:items-stretch md:gap-2 xl:gap-2.5 md:h-[40%] lg:h-[42%] xl:h-[50%] shrink-0'
+              ? 'flex flex-col flex-1 min-h-0 gap-2 md:flex-none md:flex-row md:items-stretch md:gap-2 xl:gap-2.5 md:h-[45%] lg:h-[47%] xl:h-[50%] md:min-h-[250px] lg:min-h-[264px] xl:min-h-0 shrink-0'
+              : 'fixed -left-[10000px] top-0 w-[720px] h-[320px] opacity-0 pointer-events-none md:static md:left-auto md:top-auto md:w-auto md:opacity-100 md:pointer-events-auto md:flex md:flex-none md:flex-row md:items-stretch md:gap-2 xl:gap-2.5 md:h-[45%] lg:h-[47%] xl:h-[50%] md:min-h-[250px] lg:min-h-[264px] xl:min-h-0 shrink-0'
           }
         >
           <div
@@ -2231,6 +2221,14 @@ export default function App() {
                 setMobileTab('library');
                 libraryRef.current?.scrollIntoView({ behavior: 'smooth' });
               }}
+              deckAPlaying={deckA.isPlaying}
+              deckBPlaying={deckB.isPlaying}
+              deckAEnding={
+                deckA.isPlaying && deckA.duration > 8 && deckA.duration - deckA.currentTime <= 15
+              }
+              deckBEnding={
+                deckB.isPlaying && deckB.duration > 8 && deckB.duration - deckB.currentTime <= 15
+              }
             />
           </div>
 
@@ -2587,6 +2585,12 @@ export default function App() {
           onClose={() => setShowAiConfigModal(false)}
           onLogout={handleSignOut}
           isAdmin={isAdmin}
+          userEmail={authUser?.email || null}
+          onOpenLogin={() => {
+            setAuthError(null);
+            setAuthNotice(null);
+            setShowLoginScreen(true);
+          }}
           onOpenAdminDashboard={() => {
             setDeckA((p) => ({ ...p, isPlaying: false }));
             setDeckB((p) => ({ ...p, isPlaying: false }));
@@ -2613,6 +2617,8 @@ export default function App() {
           {toastMsg}
         </div>
       )}
+
+      <OfflineIndicator />
       </div>
     </Suspense>
   );

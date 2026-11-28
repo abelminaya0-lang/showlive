@@ -20,6 +20,7 @@ import {
   Sliders,
   Youtube,
 } from 'lucide-react';
+import { DownloadAppButton, OfflineIndicator } from './PWAInstallControls';
 
 const WHATSAPP_ACCESS_URL =
   'https://wa.me/51964708446?text=Hola%2C%20quiero%20acceder%20al%20programa%20ShowLive';
@@ -99,16 +100,8 @@ export const LandingView: React.FC<LandingViewProps> = ({
         </div>
 
         <div className="flex items-center gap-2.5">
-          {!userEmail ? (
-            <button
-              type="button"
-              onClick={onOpenLogin}
-              className="inline-flex items-center gap-2 px-4 py-2 rounded-full bg-[#131826] hover:bg-[#1B2236] border border-cyan-400/50 text-white text-xs sm:text-sm font-bold shadow-[0_0_20px_rgba(34,211,238,0.15)] transition-all cursor-pointer"
-            >
-              <LogIn className="w-4 h-4 text-cyan-400" />
-              <span>Iniciar sesión</span>
-            </button>
-          ) : (
+          <DownloadAppButton variant="landing" />
+          {userEmail && (
             <>
               {isAdmin && (
                 <button
@@ -141,6 +134,7 @@ export const LandingView: React.FC<LandingViewProps> = ({
             </>
           )}
         </div>
+        <OfflineIndicator />
       </header>
 
       <div className="flex-1 flex items-center">

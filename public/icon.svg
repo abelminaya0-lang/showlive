@@ -1,0 +1,32 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+  <defs>
+    <linearGradient id="bgGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#141824" />
+      <stop offset="55%" stop-color="#0B0E16" />
+      <stop offset="100%" stop-color="#07090E" />
+    </linearGradient>
+    <linearGradient id="triGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#FACC15" />
+      <stop offset="50%" stop-color="#EC287B" />
+      <stop offset="100%" stop-color="#22D3EE" />
+    </linearGradient>
+    <linearGradient id="micGrad" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" stop-color="#FF4794" />
+      <stop offset="100%" stop-color="#EC287B" />
+    </linearGradient>
+  </defs>
+  <rect width="512" height="512" rx="112" fill="url(#bgGrad)" />
+  <rect x="20" y="20" width="472" height="472" rx="96" fill="none" stroke="url(#triGrad)" stroke-width="14" />
+  <circle cx="256" cy="242" r="144" fill="#10131D" stroke="#FACC15" stroke-width="12" />
+  <circle cx="256" cy="242" r="118" fill="none" stroke="#22D3EE" stroke-opacity="0.35" stroke-width="4" stroke-dasharray="14 10" />
+  <!-- Microphone Capsule -->
+  <rect x="218" y="140" width="76" height="122" rx="38" fill="url(#micGrad)" />
+  <path d="M188 228c0 38 30 68 68 68s68-30 68-68" fill="none" stroke="#22D3EE" stroke-width="14" stroke-linecap="round" />
+  <line x1="256" y1="296" x2="256" y2="338" stroke="#FACC15" stroke-width="14" stroke-linecap="round" />
+  <line x1="214" y1="338" x2="298" y2="338" stroke="#FACC15" stroke-width="14" stroke-linecap="round" />
+  <!-- Equalizer Side Bars -->
+  <rect x="136" y="210" width="14" height="64" rx="7" fill="#22D3EE" />
+  <rect x="160" y="186" width="14" height="112" rx="7" fill="#FACC15" />
+  <rect x="338" y="186" width="14" height="112" rx="7" fill="#FACC15" />
+  <rect x="362" y="210" width="14" height="64" rx="7" fill="#22D3EE" />
+</svg>
