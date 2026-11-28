@@ -46,6 +46,9 @@ export interface TrackItem {
   introStartSec?: number;
   outroStartSec?: number;
   beatOffsetSec?: number;
+  coroStartSec?: number;
+  coroMixOutSec?: number;
+  coroDropInSec?: number;
   demoPreset?: {
     bpm: number;
     rootMidi: number;
@@ -77,6 +80,7 @@ export interface DeckState {
 }
 
 export type AutoDjSourceType = 'all-local' | 'playlist' | 'drive';
+export type AutoDjMixStyle = 'coro' | 'outro';
 export type AutoDjPhase =
   | 'idle'
   | 'standby'
@@ -92,11 +96,14 @@ export interface AutoDjStatus {
   driveFolderId: string | null;
   sourceLabel: string;
   phase: AutoDjPhase;
+  mixStyle?: AutoDjMixStyle;
   nextTrackName: string | null;
   nextTrackBpm: number | null;
   targetRate: number | null;
   syncModeLabel: string | null;
   mixInSec: number | null;
+  suggestedMixOutSec?: number | null;
+  suggestedMixInSec?: number | null;
   playedCount: number;
   totalCount: number;
 }

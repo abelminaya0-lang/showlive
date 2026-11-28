@@ -62,6 +62,7 @@ interface LibraryPanelProps {
   onStopAutoDj?: () => void;
   onManualCrossfadeNow?: () => void;
   onSkipAutoDjNext?: () => void;
+  onToggleAutoDjMixStyle?: () => void;
   // YouTube Search
   ytResults: YouTubeSearchResult[];
   ytLoading: boolean;
@@ -118,6 +119,7 @@ export const LibraryPanel: React.FC<LibraryPanelProps> = ({
   onStopAutoDj,
   onManualCrossfadeNow,
   onSkipAutoDjNext,
+  onToggleAutoDjMixStyle,
   ytResults,
   ytLoading,
   ytError,
@@ -603,7 +605,7 @@ export const LibraryPanel: React.FC<LibraryPanelProps> = ({
 
             {autoDjStatus?.enabled && (
               <div className="px-3 md:px-4 py-1.5 border-b border-[#34D399]/35 bg-[#091314] flex flex-wrap items-center justify-between gap-2 text-[11px]">
-                <div className="flex items-center gap-2 min-w-0 flex-1">
+                <div className="flex items-center gap-2 min-w-0 flex-1 flex-wrap">
                   <Disc3
                     className="w-3.5 h-3.5 text-[#34D399] shrink-0 animate-spin"
                     style={{ animationDuration: '2.5s' }}
@@ -612,7 +614,7 @@ export const LibraryPanel: React.FC<LibraryPanelProps> = ({
                     AUTO DJ · {autoDjStatus.sourceLabel}
                   </span>
                   {autoDjStatus.nextTrackName && (
-                    <span className="text-slate-200 truncate">
+                    <span className="text-slate-200 truncate max-w-[220px]">
                       Sig: <strong>{autoDjStatus.nextTrackName}</strong>
                     </span>
                   )}
@@ -621,8 +623,34 @@ export const LibraryPanel: React.FC<LibraryPanelProps> = ({
                       {autoDjStatus.syncModeLabel}
                     </span>
                   )}
+                  {autoDjStatus.suggestedMixOutSec != null && (
+                    <span className="px-1.5 py-0.5 rounded bg-[#22D3EE]/12 border border-[#22D3EE]/35 text-[#67E8F9] font-mono-tabular font-bold text-[10px] shrink-0">
+                      {autoDjStatus.mixStyle === 'outro' ? 'Final' : 'Coro'}{' '}
+                      {Math.floor(autoDjStatus.suggestedMixOutSec / 60)}:
+                      {Math.floor(autoDjStatus.suggestedMixOutSec % 60)
+                        .toString()
+                        .padStart(2, '0')}
+                      {autoDjStatus.mixInSec != null && autoDjStatus.mixInSec > 0
+                        ? ` (${autoDjStatus.mixInSec}s)`
+                        : ''}
+                    </span>
+                  )}
                 </div>
                 <div className="flex items-center gap-1.5 shrink-0">
+                  {onToggleAutoDjMixStyle && (
+                    <button
+                      type="button"
+                      onClick={onToggleAutoDjMixStyle}
+                      className={`px-2 py-0.5 rounded border text-[10px] font-bold cursor-pointer whitespace-nowrap transition-colors ${
+                        autoDjStatus.mixStyle !== 'outro'
+                          ? 'bg-[#FACC15]/15 border-[#FACC15]/60 text-[#FACC15]'
+                          : 'bg-[#141720] border-white/15 text-slate-300'
+                      }`}
+                      title="Cambiar punto automático de mezcla: en el Coro o al Final de la canción"
+                    >
+                      {autoDjStatus.mixStyle === 'outro' ? 'Modo: Final' : 'Modo: Coro'}
+                    </button>
+                  )}
                   {onManualCrossfadeNow && (
                     <button
                       type="button"
@@ -1170,7 +1198,7 @@ export const LibraryPanel: React.FC<LibraryPanelProps> = ({
 
                   {autoDjStatus?.enabled && autoDjStatus.sourceType === 'drive' && (
                     <div className="px-2.5 py-1.5 rounded bg-[#091314] border border-[#34D399]/40 text-[11px] flex flex-wrap items-center justify-between gap-2 min-w-0">
-                      <div className="flex items-center gap-2 min-w-0 flex-1">
+                      <div className="flex items-center gap-2 min-w-0 flex-1 flex-wrap">
                         <Disc3
                           className="w-3.5 h-3.5 text-[#34D399] shrink-0 animate-spin"
                           style={{ animationDuration: '2.5s' }}
@@ -1179,7 +1207,7 @@ export const LibraryPanel: React.FC<LibraryPanelProps> = ({
                           AUTO DJ · {autoDjStatus.sourceLabel}
                         </span>
                         {autoDjStatus.nextTrackName && (
-                          <span className="text-slate-200 truncate">
+                          <span className="text-slate-200 truncate max-w-[210px]">
                             Sig: <strong>{autoDjStatus.nextTrackName}</strong>
                           </span>
                         )}
@@ -1188,8 +1216,30 @@ export const LibraryPanel: React.FC<LibraryPanelProps> = ({
                             {autoDjStatus.syncModeLabel}
                           </span>
                         )}
+                        {autoDjStatus.suggestedMixOutSec != null && (
+                          <span className="px-1.5 py-0.5 rounded bg-[#22D3EE]/12 border border-[#22D3EE]/35 text-[#67E8F9] font-mono-tabular font-bold text-[10px] shrink-0">
+                            {autoDjStatus.mixStyle === 'outro' ? 'Final' : 'Coro'}{' '}
+                            {Math.floor(autoDjStatus.suggestedMixOutSec / 60)}:
+                            {Math.floor(autoDjStatus.suggestedMixOutSec % 60)
+                              .toString()
+                              .padStart(2, '0')}
+                          </span>
+                        )}
                       </div>
                       <div className="flex items-center gap-1.5 shrink-0">
+                        {onToggleAutoDjMixStyle && (
+                          <button
+                            type="button"
+                            onClick={onToggleAutoDjMixStyle}
+                            className={`px-2 py-0.5 rounded border text-[10px] font-bold cursor-pointer whitespace-nowrap transition-colors ${
+                              autoDjStatus.mixStyle !== 'outro'
+                                ? 'bg-[#FACC15]/15 border-[#FACC15]/60 text-[#FACC15]'
+                                : 'bg-[#141720] border-white/15 text-slate-300'
+                            }`}
+                          >
+                            {autoDjStatus.mixStyle === 'outro' ? 'Final' : 'Coro'}
+                          </button>
+                        )}
                         {onManualCrossfadeNow && (
                           <button
                             type="button"

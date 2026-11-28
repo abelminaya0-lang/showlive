@@ -53,6 +53,7 @@ import {
 import {
   computeTempoSync,
   extractBpmFromTrackName,
+  extractChorusFromLyrics,
   pickNextAutoDjCandidate,
 } from './utils/bpmUtils';
 
@@ -92,6 +93,7 @@ import {
 import {
   AccessRequest,
   AuthorizedClient,
+  AutoDjMixStyle,
   AutoDjPhase,
   AutoDjSourceType,
   AutoDjStatus,
@@ -221,23 +223,29 @@ export default function App() {
     label: 'Todas las pistas',
   });
   const [autoDjPhase, setAutoDjPhase] = useState<AutoDjPhase>('idle');
+  const [autoDjMixStyle, setAutoDjMixStyle] = useState<AutoDjMixStyle>('coro');
   const [autoDjNextInfo, setAutoDjNextInfo] = useState<{
     name: string | null;
     bpm: number | null;
     targetRate: number | null;
     syncModeLabel: string | null;
     mixInSec: number | null;
+    suggestedMixOutSec: number | null;
+    suggestedMixInSec: number | null;
   }>({
     name: null,
     bpm: null,
     targetRate: null,
     syncModeLabel: null,
     mixInSec: null,
+    suggestedMixOutSec: null,
+    suggestedMixInSec: null,
   });
 
   const libraryRef = useRef<HTMLDivElement | null>(null);
   const autoMixTimerRef = useRef<number | null>(null);
   const autoDjBeatTimerRef = useRef<number | null>(null);
+  const autoDjPllTimerRef = useRef<number | null>(null);
   const autoDjGlideTimerRef = useRef<number | null>(null);
   const autoTransitionDeckRef = useRef<DeckId | null>(null);
   const autoDjPlayedIdsRef = useRef<Set<string>>(new Set());
@@ -253,10 +261,14 @@ export default function App() {
   driveFilesRef.current = driveFiles;
   const driveSelectedFolderIdRef = useRef(driveSelectedFolderId);
   driveSelectedFolderIdRef.current = driveSelectedFolderId;
+  const libraryTabRef = useRef(libraryTab);
+  libraryTabRef.current = libraryTab;
   const playlistsRef = useRef(playlists);
   playlistsRef.current = playlists;
   const autoDjSourceRef = useRef(autoDjSource);
   autoDjSourceRef.current = autoDjSource;
+  const autoDjMixStyleRef = useRef(autoDjMixStyle);
+  autoDjMixStyleRef.current = autoDjMixStyle;
   const tracksRef = useRef(tracks);
   tracksRef.current = tracks;
   const selectedPlaylistIdRef = useRef(selectedPlaylistId);
@@ -928,12 +940,55 @@ export default function App() {
     []
   );
 
+  const computeTrackMixOutSec = useCallback(
+    (track: TrackItem | null | undefined, duration: number, style: AutoDjMixStyle): number => {
+      if (!duration || duration <= 5) return Math.max(2, (duration || 8) * 0.65);
+      const minTailSec = duration < 45 ? Math.max(4.5, duration * 0.22) : 11;
+      const minOutSec = Math.max(4, duration * 0.42);
+      const maxOutSec = Math.max(minOutSec + 1, duration - minTailSec);
+
+      if (style === 'coro') {
+        const lyricChorus = extractChorusFromLyrics(track?.lyrics);
+        const lyricTarget =
+          lyricChorus.lastChorusEndSec ??
+          (lyricChorus.lastChorusSec !== null ? lyricChorus.lastChorusSec + 10 : null);
+        if (lyricTarget !== null && lyricTarget >= minOutSec && lyricTarget <= maxOutSec) {
+          return lyricTarget;
+        }
+        if (
+          track?.coroMixOutSec !== undefined &&
+          track.coroMixOutSec >= minOutSec &&
+          track.coroMixOutSec <= maxOutSec
+        ) {
+          return track.coroMixOutSec;
+        }
+      }
+
+      if (
+        track?.outroStartSec !== undefined &&
+        track.outroStartSec >= Math.max(4, duration * 0.48) &&
+        track.outroStartSec <= duration - 3
+      ) {
+        return track.outroStartSec;
+      }
+
+      return Math.max(minOutSec, Math.min(maxOutSec, duration - Math.min(14, Math.max(5.5, duration * 0.3))));
+    },
+    []
+  );
+
   const resolveAutoDjEntryToTrack = useCallback(
     async (entry: AutoDjPoolEntry): Promise<TrackItem | null> => {
       if (entry.kind === 'local') {
         const ready = await resolveTrackMediaUrl(entry.track);
         const mediaUrl = ready.videoUrl || ready.audioUrl || '';
-        if (mediaUrl && (!ready.bpm || ready.introStartSec === undefined || ready.outroStartSec === undefined)) {
+        if (
+          mediaUrl &&
+          (!ready.bpm ||
+            ready.introStartSec === undefined ||
+            ready.outroStartSec === undefined ||
+            ready.coroMixOutSec === undefined)
+        ) {
           const analysis = await audioEngine.analyzeAudioUrl(mediaUrl);
           if (analysis) {
             const enriched: TrackItem = {
@@ -942,6 +997,9 @@ export default function App() {
               introStartSec: ready.introStartSec ?? analysis.introStartSec,
               outroStartSec: ready.outroStartSec ?? analysis.outroStartSec,
               beatOffsetSec: ready.beatOffsetSec ?? analysis.beatOffsetSec,
+              coroStartSec: ready.coroStartSec ?? analysis.coroStartSec,
+              coroMixOutSec: ready.coroMixOutSec ?? analysis.coroMixOutSec,
+              coroDropInSec: ready.coroDropInSec ?? analysis.coroDropInSec,
             };
             setTracks((prev) => prev.map((t) => (t.id === enriched.id ? enriched : t)));
             return enriched;
@@ -977,6 +1035,9 @@ export default function App() {
           introStartSec: analysis?.introStartSec,
           outroStartSec: analysis?.outroStartSec,
           beatOffsetSec: analysis?.beatOffsetSec,
+          coroStartSec: analysis?.coroStartSec,
+          coroMixOutSec: analysis?.coroMixOutSec,
+          coroDropInSec: analysis?.coroDropInSec,
         };
       } catch (err: any) {
         if (err instanceof DriveAuthError) {
@@ -995,11 +1056,12 @@ export default function App() {
       track: TrackItem,
       autoPlay: boolean,
       syncRatio = 1,
-      syncedBpm: number | null = null
-    ) => {
+      syncedBpm: number | null = null,
+      overrideStartCue?: number
+    ): Promise<TrackItem> => {
       deckConsumedRef.current[deckId] = false;
       const ready = await resolveTrackMediaUrl(track);
-      const startCue = ready.introStartSec ?? 0;
+      const startCue = overrideStartCue ?? ready.introStartSec ?? 0;
       setDeck(deckId, (prev) => ({
         ...prev,
         source: 'local',
@@ -1012,6 +1074,7 @@ export default function App() {
         cuePoint: startCue,
         showLyricsOverlay: aiConfigRef.current.autoSyncLyrics && ready.hasAiLyrics,
       }));
+      return ready;
     },
     [resolveTrackMediaUrl]
   );
@@ -1096,7 +1159,7 @@ export default function App() {
           [otherDeckId]: { high: 0, mid: 0, low: 0, filter: 0, volume: 1.0 },
         }));
 
-        await loadPoolTrackToDeck(
+        const loaded = await loadPoolTrackToDeck(
           otherDeckId,
           resolved,
           false,
@@ -1104,12 +1167,22 @@ export default function App() {
           refinedSync.mode === 'fallback' ? null : refinedSync.targetBpm
         );
 
+        const mediaSrc = loaded.videoUrl || loaded.audioUrl || null;
+        await audioEngine.waitForDeckReadyAndSeek(
+          otherDeckId,
+          loaded.introStartSec ?? 0,
+          refinedSync.ratio,
+          true,
+          mediaSrc
+        );
+
         setAutoDjNextInfo((prev) => ({
           ...prev,
-          name: resolved.name,
-          bpm: resolved.bpm ?? refinedSync.incomingBaseBpm ?? null,
+          name: loaded.name,
+          bpm: loaded.bpm ?? refinedSync.incomingBaseBpm ?? null,
           targetRate: refinedSync.ratio,
           syncModeLabel: refinedSync.label,
+          suggestedMixInSec: loaded.introStartSec ?? 0,
         }));
       } finally {
         if (autoDjPreloadKeyRef.current === preloadKey) {
@@ -1129,6 +1202,9 @@ export default function App() {
         introStartSec: number;
         outroStartSec: number;
         beatOffsetSec: number;
+        coroStartSec: number;
+        coroMixOutSec: number;
+        coroDropInSec: number;
       }
     ) => {
       setDeck(deckId, (prev) => {
@@ -1141,6 +1217,9 @@ export default function App() {
             introStartSec: prev.track.introStartSec ?? analysis.introStartSec,
             outroStartSec: prev.track.outroStartSec ?? analysis.outroStartSec,
             beatOffsetSec: prev.track.beatOffsetSec ?? analysis.beatOffsetSec,
+            coroStartSec: prev.track.coroStartSec ?? analysis.coroStartSec,
+            coroMixOutSec: prev.track.coroMixOutSec ?? analysis.coroMixOutSec,
+            coroDropInSec: prev.track.coroDropInSec ?? analysis.coroDropInSec,
           },
         };
       });
@@ -1153,6 +1232,9 @@ export default function App() {
                 introStartSec: t.introStartSec ?? analysis.introStartSec,
                 outroStartSec: t.outroStartSec ?? analysis.outroStartSec,
                 beatOffsetSec: t.beatOffsetSec ?? analysis.beatOffsetSec,
+                coroStartSec: t.coroStartSec ?? analysis.coroStartSec,
+                coroMixOutSec: t.coroMixOutSec ?? analysis.coroMixOutSec,
+                coroDropInSec: t.coroDropInSec ?? analysis.coroDropInSec,
               }
             : t
         )
@@ -1205,6 +1287,10 @@ export default function App() {
       window.clearTimeout(autoDjBeatTimerRef.current);
       autoDjBeatTimerRef.current = null;
     }
+    if (autoDjPllTimerRef.current) {
+      window.clearTimeout(autoDjPllTimerRef.current);
+      autoDjPllTimerRef.current = null;
+    }
     if (autoDjGlideTimerRef.current) {
       window.clearInterval(autoDjGlideTimerRef.current);
       autoDjGlideTimerRef.current = null;
@@ -1242,10 +1328,35 @@ export default function App() {
       }
 
       toDeck = toDeckId === 'A' ? deckARef.current : deckBRef.current;
-      const incomingTrack = nextTrackToLoad || toDeck.track;
+      let incomingTrack = nextTrackToLoad || toDeck.track;
 
       if (!incomingTrack && !toDeck.youtubeId) {
         return; // Nothing to transition to
+      }
+
+      // Ensure incoming track has analyzed beat grid & BPM before beatmatching
+      if (incomingTrack && incomingTrack.sourceType === 'file') {
+        const inUrl = incomingTrack.videoUrl || incomingTrack.audioUrl || '';
+        if (
+          inUrl &&
+          (!incomingTrack.bpm ||
+            incomingTrack.beatOffsetSec === undefined ||
+            incomingTrack.introStartSec === undefined)
+        ) {
+          const analysis = await audioEngine.analyzeAudioUrl(inUrl);
+          if (analysis) {
+            incomingTrack = {
+              ...incomingTrack,
+              bpm: incomingTrack.bpm || analysis.detectedBpm,
+              introStartSec: incomingTrack.introStartSec ?? analysis.introStartSec,
+              outroStartSec: incomingTrack.outroStartSec ?? analysis.outroStartSec,
+              beatOffsetSec: incomingTrack.beatOffsetSec ?? analysis.beatOffsetSec,
+              coroStartSec: incomingTrack.coroStartSec ?? analysis.coroStartSec,
+              coroMixOutSec: incomingTrack.coroMixOutSec ?? analysis.coroMixOutSec,
+              coroDropInSec: incomingTrack.coroDropInSec ?? analysis.coroDropInSec,
+            };
+          }
+        }
       }
 
       autoTransitionDeckRef.current = fromDeckId;
@@ -1263,22 +1374,24 @@ export default function App() {
         (incomingTrack?.name ? extractBpmFromTrackName(incomingTrack.name) : null);
       const sync = computeTempoSync(outBpmRaw, inBpm);
 
-      setAutoDjPhase('cueing');
-      setAutoDjNextInfo({
-        name: incomingTrack?.name || toDeck.youtubeTitle || null,
-        bpm: inBpm || null,
-        targetRate: sync.ratio,
-        syncModeLabel: sync.label,
-        mixInSec: 0,
-      });
-
       const inIntroCue = incomingTrack?.introStartSec ?? 0;
       const startInAtSec =
         toDeck.currentTime > inIntroCue + 2 && !nextTrackToLoad
           ? toDeck.currentTime
           : inIntroCue;
 
-      // Cue incoming deck with Bass cut (-20 dB) + subtle HPF (+0.30) so floor energy never muddies or dips
+      setAutoDjPhase('cueing');
+      setAutoDjNextInfo((prev) => ({
+        ...prev,
+        name: incomingTrack?.name || toDeck.youtubeTitle || null,
+        bpm: inBpm || null,
+        targetRate: sync.ratio,
+        syncModeLabel: sync.label,
+        mixInSec: 0,
+        suggestedMixInSec: startInAtSec,
+      }));
+
+      // Cue incoming deck EQ with Bass cut (-20 dB) + subtle HPF (+0.25) while keeping outgoing track untouched
       const startFromEq = mixerRef.current[fromDeckId];
       setMixer((prev) => ({
         ...prev,
@@ -1288,57 +1401,133 @@ export default function App() {
         },
         [toDeckId]: {
           high: 0,
-          mid: -1.5,
+          mid: -2.0,
           low: -20,
-          filter: 0.3,
+          filter: 0.25,
           volume: 1.0,
         },
       }));
 
-      // Beat-phase alignment wait (snap incoming attack to outgoing downbeat grid)
-      let beatWaitMs = 0;
-      if (fromDeck.isPlaying && outBpmRaw && outBpmRaw > 40) {
-        const beatSec = 60 / outBpmRaw;
-        const offset = fromDeck.track?.beatOffsetSec ?? fromDeck.track?.introStartSec ?? 0;
-        const phase = (((fromDeck.currentTime - offset) % beatSec) + beatSec) % beatSec;
-        const rawWait = ((beatSec - phase) % beatSec) * 1000;
-        beatWaitMs = isManual ? Math.min(180, rawWait) : Math.min(620, rawWait);
-      }
-
-      const startBlendLoop = () => {
+      // Load/park incoming deck PAUSED at exact Beat-1 cue and await media decode readiness BEFORE crossfading!
+      if (incomingTrack && toDeck.source === 'local') {
+        let readyTrack = incomingTrack;
         if (nextTrackToLoad) {
-          loadPoolTrackToDeck(
+          readyTrack = await loadPoolTrackToDeck(
             toDeckId,
-            nextTrackToLoad,
-            true,
+            incomingTrack,
+            false,
             sync.ratio,
-            sync.mode === 'fallback' ? null : sync.targetBpm
+            sync.mode === 'fallback' ? null : sync.targetBpm,
+            startInAtSec
           );
         } else {
           setDeck(toDeckId, (prev) => ({
             ...prev,
-            isPlaying: true,
+            track: readyTrack,
+            isPlaying: false,
             currentTime: startInAtSec,
             playbackRate: sync.ratio,
             syncedBpm: sync.mode === 'fallback' ? null : sync.targetBpm,
           }));
         }
-        audioEngine.setDeckPlaybackRate(toDeckId, sync.ratio, true);
 
-        showToast(
-          `Auto DJ: ${sync.label} · Bass Swap → Deck ${toDeckId}`
+        const expectedSrc =
+          readyTrack.sourceType === 'demo'
+            ? getOrCreateDemoTrackUrl(readyTrack)
+            : readyTrack.videoUrl || readyTrack.audioUrl || null;
+
+        await audioEngine.waitForDeckReadyAndSeek(
+          toDeckId,
+          startInAtSec,
+          sync.ratio,
+          true,
+          expectedSrc
         );
+      }
+
+      if (autoTransitionDeckRef.current !== fromDeckId) return;
+
+      // Read real live outgoing media position AFTER buffering to snap to exact next Beat-1
+      const fromEl = audioEngine.getDeckMediaElement(fromDeckId);
+      const liveFromTime = fromEl ? fromEl.currentTime : fromDeck.currentTime;
+      const fromBeatPeriod = outBpmRaw && outBpmRaw > 40 ? 60 / outBpmRaw : 0.6;
+      let beatWaitMs = 0;
+      if (fromDeck.isPlaying && outBpmRaw && outBpmRaw > 40) {
+        const offset = fromDeck.track?.beatOffsetSec ?? fromDeck.track?.introStartSec ?? 0;
+        const phase = (((liveFromTime - offset) % fromBeatPeriod) + fromBeatPeriod) % fromBeatPeriod;
+        const rawWait = ((fromBeatPeriod - phase) % fromBeatPeriod) * 1000;
+        beatWaitMs = isManual ? Math.min(160, rawWait) : Math.min(640, rawWait);
+      }
+
+      const startBlendLoop = async () => {
+        if (autoTransitionDeckRef.current !== fromDeckId) return;
+
+        // Start incoming deck playback immediately synced with playbackRate
+        setDeck(toDeckId, (prev) => ({
+          ...prev,
+          isPlaying: true,
+          currentTime: startInAtSec,
+          playbackRate: sync.ratio,
+          syncedBpm: sync.mode === 'fallback' ? null : sync.targetBpm,
+        }));
+
+        await audioEngine.playDeckMediaSynced(toDeckId, sync.ratio, true);
+
+        // Active PLL Phase-Lock Check (~130ms after play starts) to remove any browser play() jitter
+        const activeFromEl = audioEngine.getDeckMediaElement(fromDeckId);
+        const activeToEl = audioEngine.getDeckMediaElement(toDeckId);
+        if (
+          activeFromEl &&
+          activeToEl &&
+          outBpmRaw &&
+          outBpmRaw > 40 &&
+          inBpm &&
+          inBpm > 40
+        ) {
+          const fromOffset = fromDeck.track?.beatOffsetSec ?? fromDeck.track?.introStartSec ?? 0;
+          const toOffset = incomingTrack?.beatOffsetSec ?? incomingTrack?.introStartSec ?? startInAtSec;
+          const inBeatPeriod = 60 / inBpm;
+
+          autoDjPllTimerRef.current = window.setTimeout(() => {
+            if (autoTransitionDeckRef.current !== fromDeckId) return;
+            const pFrom =
+              ((((activeFromEl.currentTime - fromOffset) / fromBeatPeriod) % 1) + 1) % 1;
+            const pTo =
+              ((((activeToEl.currentTime - toOffset) / inBeatPeriod) % 1) + 1) % 1;
+            // Shortest signed beat error in [-0.5, +0.5] beats
+            let errBeats = pFrom - pTo;
+            if (errBeats > 0.5) errBeats -= 1;
+            if (errBeats < -0.5) errBeats += 1;
+
+            if (Math.abs(errBeats) > 0.035) {
+              const corrDurSec = 0.24;
+              const errWallSec = errBeats * fromBeatPeriod;
+              const nudgeFactor = Math.max(0.94, Math.min(1.06, 1 + errWallSec / corrDurSec));
+              audioEngine.setDeckPlaybackRate(toDeckId, sync.ratio * nudgeFactor, true);
+              window.setTimeout(() => {
+                if (autoTransitionDeckRef.current === fromDeckId) {
+                  audioEngine.setDeckPlaybackRate(toDeckId, sync.ratio, true);
+                }
+              }, Math.round(corrDurSec * 1000));
+            }
+          }, 130);
+        }
+
+        showToast(`Auto DJ: ${sync.label} · Mezclando en vivo → Deck ${toDeckId}`);
 
         const targetSide = toDeckId === 'B' ? 1 : -1;
         const startXf = mixerRef.current.crossfader;
+        const latestFromTime = activeFromEl ? activeFromEl.currentTime : fromDeck.currentTime;
         const fromDur = fromDeck.duration || fromDeck.track?.durationSec || 180;
-        const remainingFrom = Math.max(2.5, fromDur - fromDeck.currentTime);
+        const remainingFrom = Math.max(3.0, fromDur - latestFromTime);
+        // Quantized 16-beat (4-bar) club blend, gracefully bounded to remaining song time
+        const quantized16BeatMs = 16 * fromBeatPeriod * 1000;
         const targetMixMs =
           fromDur < 45
-            ? Math.max(2800, Math.min(4800, remainingFrom * 750))
-            : Math.max(5500, Math.min(9800, remainingFrom * 820));
+            ? Math.max(2800, Math.min(5600, remainingFrom * 780))
+            : Math.max(5800, Math.min(11500, Math.min(quantized16BeatMs, remainingFrom * 840)));
         const tickMs = 45;
-        const totalSteps = Math.max(24, Math.round(targetMixMs / tickMs));
+        const totalSteps = Math.max(28, Math.round(targetMixMs / tickMs));
         let step = 0;
 
         setAutoDjPhase('blending');
@@ -1346,7 +1535,7 @@ export default function App() {
         autoMixTimerRef.current = window.setInterval(() => {
           step++;
           const t = Math.min(1, step / totalSteps);
-          // Smooth equal-energy S-curve for crossfader
+          // Equal-energy smooth S-curve crossfader that dwells cleanly in the dual-deck blend zone
           const smoothT = t * t * (3 - 2 * t);
           const xf = startXf + (targetSide - startXf) * smoothT;
 
@@ -1354,29 +1543,34 @@ export default function App() {
           let outMid = startFromEq.mid;
           let outFilter = startFromEq.filter;
           let inLow = -20;
-          let inMid = -1.5;
-          let inFilter = 0.3;
+          let inMid = -2.0;
+          let inFilter = 0.25;
 
           if (t < 0.35) {
             setAutoDjPhase('blending');
-          } else if (t <= 0.68) {
+            const p1 = t / 0.35;
+            inLow = Number((-20 + 6 * p1).toFixed(1));
+            inFilter = Number((0.25 - 0.17 * p1).toFixed(2));
+            outMid = Number((0 - 1.5 * p1).toFixed(1));
+          } else if (t <= 0.7) {
             setAutoDjPhase('bass-swap');
-            const s = (t - 0.35) / 0.33;
-            inLow = Number((-20 + 20 * s).toFixed(1));
+            const s = (t - 0.35) / 0.35;
+            inLow = Number((-14 + 14 * s).toFixed(1));
             outLow = Number((0 - 20 * s).toFixed(1));
-            inMid = Number((-1.5 + 1.5 * s).toFixed(1));
-            inFilter = Number((0.3 * (1 - s)).toFixed(2));
+            inMid = Number((-2.0 + 2.0 * s).toFixed(1));
+            outMid = Number((-1.5 - 2.0 * s).toFixed(1));
+            inFilter = Number((0.08 * (1 - s)).toFixed(2));
           } else {
             setAutoDjPhase('gliding');
-            const sExit = (t - 0.68) / 0.32;
+            const sExit = (t - 0.7) / 0.3;
             inLow = 0;
             inMid = 0;
             inFilter = 0;
             outLow = -20;
-            outMid = Number((-4 * sExit).toFixed(1));
+            outMid = Number((-3.5 - 5.5 * sExit).toFixed(1));
             outFilter = Number((0.42 * sExit).toFixed(2));
 
-            // Begin gentle tempo glide back toward 1.00 during the tail of the blend
+            // Gentle tempo glide back toward 1.00 during the tail of the blend
             const glideRate = sync.ratio + (1 - sync.ratio) * (sExit * 0.45);
             audioEngine.setDeckPlaybackRate(toDeckId, glideRate, true);
           }
@@ -1437,11 +1631,11 @@ export default function App() {
                 audioEngine.setDeckPlaybackRate(toDeckId, nextRate, true);
                 setDeck(toDeckId, (prev) => ({
                   ...prev,
-                  playbackRate: Number(nextRate.toFixed(3)),
+                  playbackRate: Number(nextRate.toFixed(4)),
                   syncedBpm:
                     gt >= 1 || !prev.track?.bpm
                       ? null
-                      : Math.round(prev.track.bpm * nextRate),
+                      : Math.round(prev.track.bpm * nextRate * 10) / 10,
                 }));
                 if (gStep >= gSteps) {
                   if (autoDjGlideTimerRef.current) {
@@ -1473,9 +1667,11 @@ export default function App() {
       };
 
       if (beatWaitMs > 15) {
-        autoDjBeatTimerRef.current = window.setTimeout(startBlendLoop, beatWaitMs);
+        autoDjBeatTimerRef.current = window.setTimeout(() => {
+          startBlendLoop();
+        }, beatWaitMs);
       } else {
-        startBlendLoop();
+        await startBlendLoop();
       }
     },
     [
@@ -1502,22 +1698,24 @@ export default function App() {
 
     const rate = activeDeck.playbackRate ?? 1;
     const realRemaining = (duration - currentTime) / Math.max(0.5, rate);
-    const outroSec = activeDeck.track?.outroStartSec;
-    const triggerAtSec =
-      outroSec && outroSec > 6 && outroSec < duration - 2.5
-        ? outroSec
-        : Math.max(4, duration - Math.min(13, Math.max(4.5, duration * 0.32)));
+    const triggerAtSec = computeTrackMixOutSec(
+      activeDeck.track,
+      duration,
+      autoDjMixStyleRef.current
+    );
 
-    // Keep live countdown to mix
+    // Keep live countdown & suggested mix cue synced
     const mixInSec = Math.max(0, Math.round((triggerAtSec - currentTime) / Math.max(0.5, rate)));
     if (autoTransitionDeckRef.current === null) {
       setAutoDjNextInfo((prev) =>
-        prev.mixInSec === mixInSec ? prev : { ...prev, mixInSec }
+        prev.mixInSec === mixInSec && prev.suggestedMixOutSec === triggerAtSec
+          ? prev
+          : { ...prev, mixInSec, suggestedMixOutSec: triggerAtSec }
       );
     }
 
     // Proactively ensure opposite deck is pre-loaded & analyzed before mix point
-    if (realRemaining <= 24 && autoTransitionDeckRef.current !== deckId) {
+    if (realRemaining <= 28 && autoTransitionDeckRef.current !== deckId) {
       ensureOppositeDeckQueued(deckId, activeDeck.track, false);
     }
 
@@ -1612,12 +1810,33 @@ export default function App() {
       label: string;
     }) => {
       audioEngine.resume();
+      const dA = deckARef.current;
+      const dB = deckBRef.current;
+
+      const isDriveContext =
+        !explicitSource &&
+        driveFilesRef.current.length > 0 &&
+        (libraryTabRef.current === 'drive' ||
+          dA.track?.id.startsWith('drive-') ||
+          dB.track?.id.startsWith('drive-'));
+
       const chosenSource = explicitSource
         ? {
             sourceType: explicitSource.sourceType,
             playlistId: explicitSource.playlistId ?? null,
             driveFolderId: explicitSource.driveFolderId ?? null,
             label: explicitSource.label,
+          }
+        : isDriveContext
+        ? {
+            sourceType: 'drive' as const,
+            playlistId: null,
+            driveFolderId: driveSelectedFolderIdRef.current ?? null,
+            label:
+              driveSelectedFolderIdRef.current
+                ? driveFoldersRef.current.find((f) => f.id === driveSelectedFolderIdRef.current)
+                    ?.name || 'Carpeta Drive'
+                : 'Google Drive',
           }
         : selectedPlaylistIdRef.current
         ? {
@@ -1640,12 +1859,10 @@ export default function App() {
       autoDjPlayedIdsRef.current.clear();
       setAutoDjPhase('standby');
 
-      const dA = deckARef.current;
-      const dB = deckBRef.current;
       const bothEmpty = !dA.track && !dA.youtubeId && !dB.track && !dB.youtubeId;
       const pool = getAutoDjPool(dA.track || dB.track, chosenSource);
 
-      if (pool.length === 0) {
+      if (pool.length === 0 && bothEmpty) {
         showToast(`No hay canciones en "${chosenSource.label}" para iniciar Auto DJ`);
         return;
       }
@@ -1653,10 +1870,16 @@ export default function App() {
       setMixer((prev) => ({
         ...prev,
         autoMixEnabled: true,
-        ...(bothEmpty || explicitSource ? { crossfader: dB.isPlaying && !dA.isPlaying ? 1 : -1 } : {}),
+        ...(bothEmpty || explicitSource
+          ? { crossfader: dB.isPlaying && !dA.isPlaying ? 1 : -1 }
+          : !dA.isPlaying && !dB.isPlaying && dB.track && !dA.track
+          ? { crossfader: 1 }
+          : !dA.isPlaying && !dB.isPlaying && dA.track
+          ? { crossfader: -1 }
+          : {}),
       }));
 
-      if (explicitSource && !dA.isPlaying && !dB.isPlaying) {
+      if (explicitSource && !dA.isPlaying && !dB.isPlaying && pool.length > 0) {
         // Fresh folder DJ session: load track 1 into Deck A, start playing, pre-queue best BPM match into Deck B
         const firstEntry = pool[0];
         const firstTrack = await resolveAutoDjEntryToTrack(firstEntry);
@@ -1669,22 +1892,69 @@ export default function App() {
           }));
           await loadPoolTrackToDeck('A', firstTrack, true, 1, null);
           await ensureOppositeDeckQueued('A', firstTrack, true, chosenSource);
-          showToast(`Auto DJ iniciado en "${chosenSource.label}": adaptando BPM y mezclas`);
+          showToast(`Auto DJ iniciado en "${chosenSource.label}": adaptando BPM y mezclas en coro`);
           return;
         }
       }
 
       if (dA.isPlaying && dA.source === 'local') {
         if (dA.track?.id) autoDjPlayedIdsRef.current.add(dA.track.id);
-        await ensureOppositeDeckQueued('A', dA.track, Boolean(explicitSource), chosenSource);
+        if (dB.track && !deckConsumedRef.current.B) {
+          const outBpm = dA.track?.bpm ?? (dA.track?.name ? extractBpmFromTrackName(dA.track.name) : null);
+          const inBpm = dB.track.bpm ?? extractBpmFromTrackName(dB.track.name);
+          const sync = computeTempoSync(outBpm, inBpm);
+          setAutoDjNextInfo((prev) => ({
+            ...prev,
+            name: dB.track?.name || null,
+            bpm: inBpm || null,
+            targetRate: sync.ratio,
+            syncModeLabel: sync.label,
+            suggestedMixInSec: dB.track?.introStartSec ?? 0,
+          }));
+        } else {
+          await ensureOppositeDeckQueued('A', dA.track, Boolean(explicitSource), chosenSource);
+        }
       } else if (dB.isPlaying && dB.source === 'local') {
         if (dB.track?.id) autoDjPlayedIdsRef.current.add(dB.track.id);
+        if (dA.track && !deckConsumedRef.current.A) {
+          const outBpm = dB.track?.bpm ?? (dB.track?.name ? extractBpmFromTrackName(dB.track.name) : null);
+          const inBpm = dA.track.bpm ?? extractBpmFromTrackName(dA.track.name);
+          const sync = computeTempoSync(outBpm, inBpm);
+          setAutoDjNextInfo((prev) => ({
+            ...prev,
+            name: dA.track?.name || null,
+            bpm: inBpm || null,
+            targetRate: sync.ratio,
+            syncModeLabel: sync.label,
+            suggestedMixInSec: dA.track?.introStartSec ?? 0,
+          }));
+        } else {
+          await ensureOppositeDeckQueued('B', dB.track, Boolean(explicitSource), chosenSource);
+        }
+      } else if (dA.track && dA.source === 'local') {
+        // Deck A is loaded & paused: start playing Deck A cleanly and prepare Deck B!
+        if (dA.track.id) autoDjPlayedIdsRef.current.add(dA.track.id);
+        setDeck('A', (prev) => ({ ...prev, isPlaying: true }));
+        if (dB.track && !deckConsumedRef.current.B) {
+          const outBpm = dA.track.bpm ?? extractBpmFromTrackName(dA.track.name);
+          const inBpm = dB.track.bpm ?? extractBpmFromTrackName(dB.track.name);
+          const sync = computeTempoSync(outBpm, inBpm);
+          setAutoDjNextInfo((prev) => ({
+            ...prev,
+            name: dB.track?.name || null,
+            bpm: inBpm || null,
+            targetRate: sync.ratio,
+            syncModeLabel: sync.label,
+            suggestedMixInSec: dB.track?.introStartSec ?? 0,
+          }));
+        } else {
+          await ensureOppositeDeckQueued('A', dA.track, Boolean(explicitSource), chosenSource);
+        }
+      } else if (dB.track && dB.source === 'local') {
+        if (dB.track.id) autoDjPlayedIdsRef.current.add(dB.track.id);
+        setDeck('B', (prev) => ({ ...prev, isPlaying: true }));
         await ensureOppositeDeckQueued('B', dB.track, Boolean(explicitSource), chosenSource);
-      } else if (dA.track && !dB.track && !dB.youtubeId) {
-        await ensureOppositeDeckQueued('A', dA.track, Boolean(explicitSource), chosenSource);
-      } else if (dB.track && !dA.track && !dA.youtubeId) {
-        await ensureOppositeDeckQueued('B', dB.track, Boolean(explicitSource), chosenSource);
-      } else if (bothEmpty) {
+      } else if (bothEmpty && pool.length > 0) {
         const firstTrack = await resolveAutoDjEntryToTrack(pool[0]);
         if (firstTrack) {
           autoDjPlayedIdsRef.current.add(firstTrack.id);
@@ -1693,7 +1963,7 @@ export default function App() {
         }
       }
 
-      showToast(`Auto DJ ON (${chosenSource.label}): beatmatch y Bass-Swap en automático`);
+      showToast(`Auto DJ ON (${chosenSource.label}): beatmatch y mezcla en coro activos`);
     },
     [
       ensureOppositeDeckQueued,
@@ -1715,6 +1985,8 @@ export default function App() {
       targetRate: null,
       syncModeLabel: null,
       mixInSec: null,
+      suggestedMixOutSec: null,
+      suggestedMixInSec: null,
     });
     setMixer((prev) => ({
       ...prev,
@@ -1730,6 +2002,18 @@ export default function App() {
       startOrEnableAutoDj();
     }
   };
+
+  const handleToggleAutoDjMixStyle = useCallback(() => {
+    setAutoDjMixStyle((prev) => {
+      const next = prev === 'coro' ? 'outro' : 'coro';
+      showToast(
+        next === 'coro'
+          ? 'Auto DJ: mezclará en el Coro / frase sugerida'
+          : 'Auto DJ: mezclará al Final de cada canción'
+      );
+      return next;
+    });
+  }, [showToast]);
 
   const handleSkipAutoDjNext = () => {
     const dA = deckARef.current;
@@ -1914,15 +2198,23 @@ export default function App() {
             crossfader: -1,
             A: { high: 0, mid: 0, low: 0, filter: 0, volume: 1.0 },
           }));
-          autoDjPlayedIdsRef.current.add(addedTracks[0].id);
-          await loadPoolTrackToDeck('A', addedTracks[0], true, 1, null);
+          const firstAnalyzed =
+            (await resolveAutoDjEntryToTrack({
+              kind: 'local',
+              id: addedTracks[0].id,
+              name: addedTracks[0].name,
+              bpm: addedTracks[0].bpm ?? null,
+              track: addedTracks[0],
+            })) || addedTracks[0];
+          autoDjPlayedIdsRef.current.add(firstAnalyzed.id);
+          await loadPoolTrackToDeck('A', firstAnalyzed, true, 1, null);
           if (addedTracks.length > 1) {
-            await ensureOppositeDeckQueued('A', addedTracks[0], true, nextSrc);
+            await ensureOppositeDeckQueued('A', firstAnalyzed, true, nextSrc);
             showToast(
-              `Auto DJ activo: "${addedTracks[0].name}" en Deck A y siguiente por BPM en Deck B`
+              `Auto DJ activo: "${firstAnalyzed.name}" en Deck A y siguiente por BPM en Deck B`
             );
           } else {
-            showToast(`Auto DJ activo: reproduciendo "${addedTracks[0].name}" en Deck A`);
+            showToast(`Auto DJ activo: reproduciendo "${firstAnalyzed.name}" en Deck A`);
           }
         } else if (dA.isPlaying && !dB.isPlaying) {
           await ensureOppositeDeckQueued('A', dA.track, true, nextSrc);
@@ -2617,6 +2909,21 @@ export default function App() {
     100;
 
   const autoDjPoolSize = getAutoDjPool(deckA.track || deckB.track).length;
+  const activeMixOutSuggestion = (() => {
+    const focused =
+      deckA.isPlaying && !deckB.isPlaying
+        ? deckA
+        : deckB.isPlaying && !deckA.isPlaying
+        ? deckB
+        : mixer.crossfader <= 0 && deckA.track
+        ? deckA
+        : deckB.track
+        ? deckB
+        : null;
+    if (!focused?.track || focused.duration <= 5) return null;
+    return computeTrackMixOutSec(focused.track, focused.duration, autoDjMixStyle);
+  })();
+
   const autoDjStatus: AutoDjStatus = {
     enabled: mixer.autoMixEnabled,
     sourceType: autoDjSource.sourceType,
@@ -2624,11 +2931,14 @@ export default function App() {
     driveFolderId: autoDjSource.driveFolderId,
     sourceLabel: autoDjSource.label,
     phase: mixer.autoMixEnabled ? autoDjPhase : 'idle',
+    mixStyle: autoDjMixStyle,
     nextTrackName: autoDjNextInfo.name,
     nextTrackBpm: autoDjNextInfo.bpm,
     targetRate: autoDjNextInfo.targetRate,
     syncModeLabel: autoDjNextInfo.syncModeLabel,
     mixInSec: autoDjNextInfo.mixInSec,
+    suggestedMixOutSec: autoDjNextInfo.suggestedMixOutSec ?? activeMixOutSuggestion,
+    suggestedMixInSec: autoDjNextInfo.suggestedMixInSec,
     playedCount: autoDjPlayedIdsRef.current.size,
     totalCount: autoDjPoolSize,
   };
@@ -2836,6 +3146,11 @@ export default function App() {
                 )
               }
               onTrackAnalysis={(analysis) => handleDeckTrackAnalysis('A', analysis)}
+              suggestedMixOutSec={
+                deckA.track && deckA.duration > 5
+                  ? computeTrackMixOutSec(deckA.track, deckA.duration, autoDjMixStyle)
+                  : null
+              }
             />
           </div>
 
@@ -2924,6 +3239,11 @@ export default function App() {
                 )
               }
               onTrackAnalysis={(analysis) => handleDeckTrackAnalysis('B', analysis)}
+              suggestedMixOutSec={
+                deckB.track && deckB.duration > 5
+                  ? computeTrackMixOutSec(deckB.track, deckB.duration, autoDjMixStyle)
+                  : null
+              }
             />
           </div>
         </section>
@@ -3020,6 +3340,7 @@ export default function App() {
               onStopAutoDj={stopAutoDj}
               onManualCrossfadeNow={handleManualCrossfadeNow}
               onSkipAutoDjNext={handleSkipAutoDjNext}
+              onToggleAutoDjMixStyle={handleToggleAutoDjMixStyle}
               ytResults={ytResults}
               ytLoading={ytLoading}
               ytError={ytError}

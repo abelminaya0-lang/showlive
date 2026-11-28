@@ -234,30 +234,73 @@ export function computeTempoSync(
   }
 
   const compatible = best.ratio >= 0.84 && best.ratio <= 1.18;
-  const clampedRatio = Number(Math.max(0.85, Math.min(1.18, best.ratio)).toFixed(3));
+  const clampedRatio = Number(Math.max(0.85, Math.min(1.18, best.ratio)).toFixed(4));
   const pctDiff = Math.round((clampedRatio - 1) * 1000) / 10;
   const pctText =
     pctDiff === 0 ? '0%' : `${pctDiff > 0 ? '+' : ''}${pctDiff.toFixed(1)}%`;
 
+  const formatBpm = (b: number) =>
+    Math.abs(b - Math.round(b)) < 0.15 ? `${Math.round(b)}` : `${b.toFixed(1)}`;
+
   const label =
     best.mode === 'exact'
-      ? `${Math.round(inc)} BPM (Exacto)`
+      ? `${formatBpm(inc)} BPM (Exacto)`
       : best.mode === 'double'
-      ? `${Math.round(inc)}×2 → ${Math.round(out)} BPM (${pctText})`
+      ? `${formatBpm(inc)}×2 → ${formatBpm(out)} BPM (${pctText})`
       : best.mode === 'half'
-      ? `${Math.round(inc)}÷2 → ${Math.round(out)} BPM (${pctText})`
-      : `${Math.round(inc)} → ${Math.round(out)} BPM (${pctText})`;
+      ? `${formatBpm(inc)}÷2 → ${formatBpm(out)} BPM (${pctText})`
+      : `${formatBpm(inc)} → ${formatBpm(out)} BPM (${pctText})`;
 
   return {
     compatible,
     ratio: clampedRatio,
-    targetBpm: Math.round(out),
-    incomingBaseBpm: Math.round(inc),
-    effectiveIncomingBpm: Math.round(best.effBpm),
+    targetBpm: Math.round(out * 10) / 10,
+    incomingBaseBpm: Math.round(inc * 10) / 10,
+    effectiveIncomingBpm: Math.round(best.effBpm * 10) / 10,
     mode: best.mode,
     pctDiff,
     label,
   };
+}
+
+/**
+ * Extracts chorus ("Coro" / "Estribillo" / "Chorus") timestamps from synced lyrics when available.
+ */
+export function extractChorusFromLyrics(
+  lyrics?: Array<{ timeSec: number; section: string; text: string }>
+): { firstChorusSec: number | null; lastChorusSec: number | null; lastChorusEndSec: number | null } {
+  if (!lyrics || lyrics.length === 0) {
+    return { firstChorusSec: null, lastChorusSec: null, lastChorusEndSec: null };
+  }
+  const coroRegex = /\b(coro|estribillo|chorus|hook|drop|preg[oó]n)\b/i;
+  let firstChorusSec: number | null = null;
+  let lastChorusStartIdx = -1;
+  let lastChorusSec: number | null = null;
+
+  for (let i = 0; i < lyrics.length; i++) {
+    const line = lyrics[i];
+    if (coroRegex.test(line.section || '') || coroRegex.test(line.text || '')) {
+      if (firstChorusSec === null) firstChorusSec = line.timeSec;
+      lastChorusSec = line.timeSec;
+      lastChorusStartIdx = i;
+    }
+  }
+
+  let lastChorusEndSec: number | null = null;
+  if (lastChorusStartIdx >= 0) {
+    for (let j = lastChorusStartIdx + 1; j < lyrics.length; j++) {
+      const sec = lyrics[j].section || '';
+      if (sec && !coroRegex.test(sec)) {
+        lastChorusEndSec = lyrics[j].timeSec;
+        break;
+      }
+    }
+    if (lastChorusEndSec === null && lastChorusStartIdx < lyrics.length - 1) {
+      lastChorusEndSec = lyrics[lyrics.length - 1].timeSec;
+    }
+  }
+
+  return { firstChorusSec, lastChorusSec, lastChorusEndSec };
 }
 
 export interface AutoDjCandidateLike {

@@ -52,7 +52,11 @@ interface DeckPanelProps {
     introStartSec: number;
     outroStartSec: number;
     beatOffsetSec: number;
+    coroStartSec: number;
+    coroMixOutSec: number;
+    coroDropInSec: number;
   }) => void;
+  suggestedMixOutSec?: number | null;
 }
 
 function formatTime(sec: number): string {
@@ -84,6 +88,7 @@ export const DeckPanel: React.FC<DeckPanelProps> = ({
   onPlaybackError,
   onDetectedBpm,
   onTrackAnalysis,
+  suggestedMixOutSec,
 }) => {
   const mediaRef = useRef<HTMLVideoElement | null>(null);
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
@@ -92,6 +97,7 @@ export const DeckPanel: React.FC<DeckPanelProps> = ({
   const channelVolumeRef = useRef(channelVolume);
   isPlayingRef.current = deck.isPlaying;
   channelVolumeRef.current = channelVolume;
+  const pendingSeekRef = useRef<number | null>(null);
   const [resolvedUrl, setResolvedUrl] = useState<string | null>(null);
   const [isRecoveringAudio, setIsRecoveringAudio] = useState(false);
   const recoveryAttemptedForRef = useRef<string | null>(null);
@@ -145,6 +151,7 @@ export const DeckPanel: React.FC<DeckPanelProps> = ({
     recoveryAttemptedForRef.current = null;
     recoveringInFlightRef.current = false;
     setIsRecoveringAudio(false);
+    pendingSeekRef.current = deck.currentTime > 0.05 ? deck.currentTime : null;
     if (!deck.track || deck.track.sourceType === 'youtube') {
       setResolvedUrl(null);
       return;
@@ -155,7 +162,7 @@ export const DeckPanel: React.FC<DeckPanelProps> = ({
     }
     const url = getOrCreateDemoTrackUrl(deck.track);
     setResolvedUrl(url);
-  }, [deck.track]);
+  }, [deck.track?.id, deck.track?.sourceType, deck.track?.videoUrl, deck.track?.audioUrl]);
 
   // Attach media element to Web Audio graph
   useEffect(() => {
@@ -181,12 +188,33 @@ export const DeckPanel: React.FC<DeckPanelProps> = ({
       }
       if (deck.isPlaying) {
         audioEngine.resume();
-        el.play().catch((err: any) => {
-          if (err?.name === 'AbortError') return;
-          if (deck.track && resolvedUrl) {
-            attemptAudioRecovery(resolvedUrl, deck.track.id, deck.track.name);
+        const rate = deck.playbackRate ?? 1;
+        const clampedRate = Math.max(0.75, Math.min(1.35, Number.isFinite(rate) ? rate : 1));
+        try {
+          (el as any).preservesPitch = true;
+          (el as any).mozPreservesPitch = true;
+          (el as any).webkitPreservesPitch = true;
+          if (Math.abs(el.playbackRate - clampedRate) > 0.001) {
+            el.playbackRate = clampedRate;
           }
-        });
+        } catch {
+          // Ignore
+        }
+        if (pendingSeekRef.current !== null && el.readyState >= 1) {
+          const target = pendingSeekRef.current;
+          pendingSeekRef.current = null;
+          if (Math.abs(el.currentTime - target) > 0.08) {
+            el.currentTime = target;
+          }
+        }
+        if (el.paused) {
+          el.play().catch((err: any) => {
+            if (err?.name === 'AbortError') return;
+            if (deck.track && resolvedUrl) {
+              attemptAudioRecovery(resolvedUrl, deck.track.id, deck.track.name);
+            }
+          });
+        }
       } else {
         el.pause();
       }
@@ -197,7 +225,7 @@ export const DeckPanel: React.FC<DeckPanelProps> = ({
         '*'
       );
     }
-  }, [deck.isPlaying, deck.source, resolvedUrl, deck.id, deck.track, attemptAudioRecovery]);
+  }, [deck.isPlaying, deck.source, resolvedUrl, deck.id, deck.track, deck.playbackRate, attemptAudioRecovery]);
 
   // Sync YouTube volume with mixer fader + crossfader
   useEffect(() => {
@@ -210,14 +238,19 @@ export const DeckPanel: React.FC<DeckPanelProps> = ({
     }
   }, [deck.source, channelVolume]);
 
-  // Sync seek changes when user scrubs progress bar or hits CUE
+  // Sync seek changes when user scrubs progress bar, hits CUE, or Auto DJ cues intro beat
   useEffect(() => {
     const el = mediaRef.current;
     if (!el || deck.source !== 'local' || introLoopActiveRef.current) return;
-    if (Math.abs(el.currentTime - deck.currentTime) > 0.6) {
-      el.currentTime = deck.currentTime;
+    if (Math.abs(el.currentTime - deck.currentTime) > 0.35) {
+      if (el.readyState >= 1) {
+        pendingSeekRef.current = null;
+        el.currentTime = deck.currentTime;
+      } else {
+        pendingSeekRef.current = deck.currentTime;
+      }
     }
-  }, [deck.currentTime, deck.source]);
+  }, [deck.currentTime, deck.source, resolvedUrl]);
 
   // Sync pitch shifter, stem isolation & beatmatched playbackRate (with key lock)
   useEffect(() => {
@@ -243,7 +276,7 @@ export const DeckPanel: React.FC<DeckPanelProps> = ({
     audioEngine.setDeckPlaybackRate(deck.id, rate, true);
   }, [deck.id, deck.playbackRate, deck.source, resolvedUrl]);
 
-  // Pre-analyze intro/outro & BPM and clean up active Web Audio loop when track changes
+  // Pre-analyze intro/coro/outro & BPM and clean up active Web Audio loop when track changes
   useEffect(() => {
     let cancelled = false;
     audioEngine.stopDeckIntroLoop(deck.id);
@@ -263,6 +296,9 @@ export const DeckPanel: React.FC<DeckPanelProps> = ({
           introStartSec: res.introStartSec,
           outroStartSec: res.outroStartSec,
           beatOffsetSec: res.beatOffsetSec,
+          coroStartSec: res.coroStartSec,
+          coroMixOutSec: res.coroMixOutSec,
+          coroDropInSec: res.coroDropInSec,
         });
       });
     }
@@ -866,6 +902,7 @@ export const DeckPanel: React.FC<DeckPanelProps> = ({
             <video
               ref={mediaRef}
               src={resolvedUrl}
+              preload="auto"
               playsInline
               className={
                 deck.source === 'local' && deck.track?.isVideo
@@ -874,6 +911,14 @@ export const DeckPanel: React.FC<DeckPanelProps> = ({
               }
               onTimeUpdate={(e) => {
                 const el = e.currentTarget;
+                if (pendingSeekRef.current !== null && el.readyState >= 1) {
+                  const target = pendingSeekRef.current;
+                  pendingSeekRef.current = null;
+                  if (Math.abs(el.currentTime - target) > 0.08) {
+                    el.currentTime = target;
+                    return;
+                  }
+                }
                 onTimeUpdate(el.currentTime, el.duration || deck.track?.durationSec || 0);
               }}
               onLoadedMetadata={(e) => {
@@ -883,7 +928,25 @@ export const DeckPanel: React.FC<DeckPanelProps> = ({
                 (el as any).mozPreservesPitch = true;
                 (el as any).webkitPreservesPitch = true;
                 el.playbackRate = Math.max(0.75, Math.min(1.35, rate));
+                if (pendingSeekRef.current !== null) {
+                  const target = pendingSeekRef.current;
+                  pendingSeekRef.current = null;
+                  if (Math.abs(el.currentTime - target) > 0.08) {
+                    el.currentTime = target;
+                  }
+                }
                 onTimeUpdate(el.currentTime, el.duration || deck.track?.durationSec || 0);
+              }}
+              onPlay={(e) => {
+                const el = e.currentTarget;
+                const rate = deck.playbackRate ?? 1;
+                (el as any).preservesPitch = true;
+                (el as any).mozPreservesPitch = true;
+                (el as any).webkitPreservesPitch = true;
+                const clamped = Math.max(0.75, Math.min(1.35, rate));
+                if (Math.abs(el.playbackRate - clamped) > 0.001) {
+                  el.playbackRate = clamped;
+                }
               }}
               onError={() => {
                 if (deck.source === 'local' && deck.track && resolvedUrl) {
@@ -1022,6 +1085,31 @@ export const DeckPanel: React.FC<DeckPanelProps> = ({
                       SYNC
                     </span>
                   )}
+                  {(suggestedMixOutSec ?? deck.track.coroMixOutSec) != null && deck.duration > 6 && (
+                    <>
+                      <span className="text-slate-600">·</span>
+                      <button
+                        type="button"
+                        onClick={() =>
+                          onSeek(
+                            Math.max(
+                              0,
+                              (deck.track?.coroStartSec ??
+                                suggestedMixOutSec ??
+                                deck.track?.coroMixOutSec ??
+                                0)
+                            )
+                          )
+                        }
+                        className="text-[#FACC15] hover:text-white cursor-pointer whitespace-nowrap"
+                        title={`Punto de mezcla sugerido en Coro (${formatTime(
+                          suggestedMixOutSec ?? deck.track.coroMixOutSec ?? 0
+                        )}) — Clic para ir al coro`}
+                      >
+                        Coro {formatTime(suggestedMixOutSec ?? deck.track.coroMixOutSec ?? 0)}
+                      </button>
+                    </>
+                  )}
                   <span className="text-slate-600">·</span>
                   <button
                     type="button"
@@ -1130,6 +1218,41 @@ export const DeckPanel: React.FC<DeckPanelProps> = ({
             }`}
             style={{ width: `${progressPct}%` }}
           />
+          {/* Suggested DJ Beat Intro Cue Marker */}
+          {deck.source === 'local' &&
+            deck.track?.introStartSec != null &&
+            deck.track.introStartSec > 0.25 &&
+            deck.duration > 2 && (
+              <div
+                className="absolute top-0 bottom-0 w-[2px] bg-[#34D399] pointer-events-none z-10"
+                style={{
+                  left: `${Math.min(98, (deck.track.introStartSec / deck.duration) * 100)}%`,
+                }}
+                title={`Entrada Beat 1: ${formatTime(deck.track.introStartSec)}`}
+              />
+            )}
+          {/* Suggested DJ Coro / Mix-Out Marker */}
+          {deck.source === 'local' &&
+            (suggestedMixOutSec ?? deck.track?.coroMixOutSec) != null &&
+            deck.duration > 4 && (
+              <div
+                className="absolute top-0 bottom-0 w-[3px] bg-[#FACC15] shadow-[0_0_6px_#FACC15] pointer-events-none z-10"
+                style={{
+                  left: `${Math.min(
+                    98,
+                    Math.max(
+                      2,
+                      (((suggestedMixOutSec ?? deck.track?.coroMixOutSec ?? 0) as number) /
+                        deck.duration) *
+                        100
+                    )
+                  )}%`,
+                }}
+                title={`Mezcla sugerida (Coro): ${formatTime(
+                  (suggestedMixOutSec ?? deck.track?.coroMixOutSec ?? 0) as number
+                )}`}
+              />
+            )}
         </div>
 
         <span className="hidden md:inline text-[11px] font-mono-tabular text-slate-300 w-9 text-right shrink-0">

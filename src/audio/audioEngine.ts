@@ -179,6 +179,9 @@ class ShowLiveAudioEngine {
       introStartSec: number;
       outroStartSec: number;
       beatOffsetSec: number;
+      coroStartSec: number;
+      coroMixOutSec: number;
+      coroDropInSec: number;
       detectedBpm: number;
       autoBeats: 4 | 8;
     }
@@ -476,6 +479,128 @@ class ShowLiveAudioEngine {
       }
     } catch {
       // Ignore media elements not yet ready
+    }
+  }
+
+  public getDeckMediaElement(deckId: DeckId): HTMLMediaElement | null {
+    return this.decks[deckId]?.mediaEl || null;
+  }
+
+  public async waitForDeckReadyAndSeek(
+    deckId: DeckId,
+    targetSec: number,
+    playbackRate: number,
+    preservePitch = true,
+    expectedSrc?: string | null
+  ): Promise<HTMLMediaElement | null> {
+    this.ensureContext();
+    const waitStart = performance.now();
+    let el = this.decks[deckId]?.mediaEl || null;
+
+    // Wait up to 2500ms for React to mount/attach the updated <video> element
+    while (
+      performance.now() - waitStart < 2500 &&
+      (!el || (expectedSrc && el.getAttribute('src') !== expectedSrc && el.currentSrc !== expectedSrc))
+    ) {
+      await new Promise((r) => window.setTimeout(r, 25));
+      el = this.decks[deckId]?.mediaEl || null;
+    }
+    if (!el) return null;
+
+    // Wait up to 4000ms for metadata so seeking works reliably
+    if (el.readyState < 1) {
+      await new Promise<void>((resolve) => {
+        let done = false;
+        const finish = () => {
+          if (done) return;
+          done = true;
+          el?.removeEventListener('loadedmetadata', finish);
+          el?.removeEventListener('canplay', finish);
+          el?.removeEventListener('error', finish);
+          resolve();
+        };
+        el!.addEventListener('loadedmetadata', finish);
+        el!.addEventListener('canplay', finish);
+        el!.addEventListener('error', finish);
+        window.setTimeout(finish, 4000);
+      });
+    }
+
+    const clampedRate = Math.max(
+      0.75,
+      Math.min(1.35, Number.isFinite(playbackRate) ? playbackRate : 1)
+    );
+    try {
+      (el as any).preservesPitch = preservePitch;
+      (el as any).mozPreservesPitch = preservePitch;
+      (el as any).webkitPreservesPitch = preservePitch;
+      el.playbackRate = clampedRate;
+    } catch {
+      // Ignore
+    }
+
+    const dur = Number.isFinite(el.duration) && el.duration > 0 ? el.duration : 9999;
+    const safeSeek = Math.max(0, Math.min(Math.max(0, dur - 0.5), targetSec));
+
+    if (el.readyState >= 1 && Math.abs(el.currentTime - safeSeek) > 0.04) {
+      await new Promise<void>((resolve) => {
+        let done = false;
+        const finish = () => {
+          if (done) return;
+          done = true;
+          el?.removeEventListener('seeked', finish);
+          resolve();
+        };
+        el!.addEventListener('seeked', finish);
+        try {
+          el!.currentTime = safeSeek;
+        } catch {
+          finish();
+          return;
+        }
+        window.setTimeout(finish, 650);
+      });
+    }
+
+    // Wait briefly until HAVE_CURRENT_DATA (readyState >= 2) so playback starts without silence
+    if (el.readyState < 2) {
+      await new Promise<void>((resolve) => {
+        let done = false;
+        const finish = () => {
+          if (done) return;
+          done = true;
+          el?.removeEventListener('canplay', finish);
+          el?.removeEventListener('loadeddata', finish);
+          el?.removeEventListener('error', finish);
+          resolve();
+        };
+        el!.addEventListener('canplay', finish);
+        el!.addEventListener('loadeddata', finish);
+        el!.addEventListener('error', finish);
+        window.setTimeout(finish, 2000);
+      });
+    }
+
+    return el;
+  }
+
+  public async playDeckMediaSynced(
+    deckId: DeckId,
+    playbackRate: number,
+    preservePitch = true
+  ): Promise<boolean> {
+    const ctx = this.ensureContext();
+    if (ctx.state === 'suspended') {
+      await ctx.resume().catch(() => {});
+    }
+    const el = this.decks[deckId]?.mediaEl;
+    if (!el) return false;
+    this.setDeckPlaybackRate(deckId, playbackRate, preservePitch);
+    try {
+      await el.play();
+      return !el.paused;
+    } catch {
+      return false;
     }
   }
 
@@ -840,37 +965,59 @@ class ShowLiveAudioEngine {
     const ch0 = buffer.getChannelData(0);
     const ch1 = buffer.numberOfChannels > 1 ? buffer.getChannelData(1) : ch0;
 
-    // Analyze up to 28 seconds starting from intro downbeat at 100 Hz hop rate (10ms)
-    const hopSamples = Math.max(64, Math.round(sr * 0.01));
-    const analyzeSamples = Math.min(buffer.length - startSample, Math.round(sr * 28));
+    // Scan steady body (skipping slow ambient intro when track is > 40s) up to 38s
+    const hopSamples = Math.max(64, Math.round(sr * 0.01)); // ~100 Hz hop
+    const totalDur = buffer.length / sr;
+    const scanStart =
+      totalDur > 42
+        ? Math.max(startSample, Math.round(buffer.length * 0.18))
+        : startSample;
+    const maxWindow = Math.round(sr * 38);
+    let effectiveStart = scanStart;
+    if (buffer.length - effectiveStart < Math.round(sr * 10)) {
+      effectiveStart = Math.max(0, Math.min(startSample, buffer.length - Math.round(sr * 12)));
+    }
+    const analyzeSamples = Math.min(buffer.length - effectiveStart, maxWindow);
     const numFrames = Math.floor(analyzeSamples / hopSamples);
     if (numFrames < 150) return 100;
 
-    const env = new Float32Array(numFrames);
+    // Combine sub/kick lowpass envelope (~160 Hz) + wideband transient envelope
+    const lpAlpha = Math.min(0.95, Math.max(0.01, (2 * Math.PI * 160) / sr));
+    let lpState = 0;
+    const lowEnv = new Float32Array(numFrames);
+    const fullEnv = new Float32Array(numFrames);
+
     for (let f = 0; f < numFrames; f++) {
-      const base = startSample + f * hopSamples;
-      let sum = 0;
+      const base = effectiveStart + f * hopSamples;
+      let sumLow = 0;
+      let sumFull = 0;
       for (let i = 0; i < hopSamples; i++) {
         const s = 0.5 * (ch0[base + i] + ch1[base + i]);
-        sum += s * s;
+        lpState += lpAlpha * (s - lpState);
+        sumLow += lpState * lpState;
+        sumFull += s * s;
       }
-      env[f] = Math.sqrt(sum / hopSamples);
+      lowEnv[f] = Math.sqrt(sumLow / hopSamples);
+      fullEnv[f] = Math.sqrt(sumFull / hopSamples);
     }
 
-    // Positive onset flux highlights drum transients (clave, kick, conga, dembow)
+    // Positive onset flux weighted heavily toward kick/bass drum hits
     const flux = new Float32Array(numFrames);
     for (let f = 1; f < numFrames; f++) {
-      const diff = env[f] - env[f - 1];
-      flux[f] = diff > 0 ? diff : 0;
+      const dLow = Math.max(0, lowEnv[f] - lowEnv[f - 1]);
+      const dFull = Math.max(0, fullEnv[f] - fullEnv[f - 1]);
+      flux[f] = dLow * 0.72 + dFull * 0.28;
     }
 
     const hopRate = sr / hopSamples; // ~100 Hz
-    const minBpm = 74;
-    const maxBpm = 156;
-    const minLag = Math.floor((60 / maxBpm) * hopRate);
-    const maxLag = Math.ceil((60 / minBpm) * hopRate);
+    const minBpm = 70;
+    const maxBpm = 162;
+    const minLag = Math.max(20, Math.floor((60 / maxBpm) * hopRate));
+    const maxLag = Math.min(numFrames - 10, Math.ceil((60 / minBpm) * hopRate));
+    if (maxLag <= minLag) return 100;
 
-    let bestBpm = 100;
+    const scores = new Float32Array(maxLag + 2);
+    let bestLag = minLag;
     let bestScore = -1;
 
     for (let lag = minLag; lag <= maxLag; lag++) {
@@ -879,7 +1026,6 @@ class ShowLiveAudioEngine {
       for (let i = 0; i < limit; i++) {
         ac += flux[i] * flux[i + lag];
       }
-      // Also reinforce 2-beat and 4-beat bar consistency so compás locks cleanly
       const lag2 = lag * 2;
       if (lag2 < numFrames) {
         let ac2 = 0;
@@ -887,7 +1033,7 @@ class ShowLiveAudioEngine {
         for (let i = 0; i < lim2; i++) {
           ac2 += flux[i] * flux[i + lag2];
         }
-        ac += ac2 * 0.55;
+        ac += ac2 * 0.6;
       }
       const lag4 = lag * 4;
       if (lag4 < numFrames) {
@@ -896,21 +1042,299 @@ class ShowLiveAudioEngine {
         for (let i = 0; i < lim4; i++) {
           ac4 += flux[i] * flux[i + lag4];
         }
-        ac += ac4 * 0.4;
+        ac += ac4 * 0.45;
       }
 
       const bpm = (60 * hopRate) / lag;
-      // Gentle Latin/urban groove prior (84-136 BPM: Reggaeton 88-98, Cumbia 90-106, Salsa 85-108/130)
-      const prior = bpm >= 84 && bpm <= 136 ? 1.15 : 0.95;
+      const prior = bpm >= 82 && bpm <= 138 ? 1.15 : 0.95;
       const score = (ac / Math.max(1, limit)) * prior;
+      scores[lag] = score;
 
       if (score > bestScore) {
         bestScore = score;
-        bestBpm = bpm;
+        bestLag = lag;
       }
     }
 
-    return Math.max(70, Math.min(165, Math.round(bestBpm)));
+    // Parabolic sub-sample peak refinement for 0.1 BPM accuracy
+    let refinedLag = bestLag;
+    if (bestLag > minLag && bestLag < maxLag) {
+      const y1 = scores[bestLag - 1];
+      const y2 = scores[bestLag];
+      const y3 = scores[bestLag + 1];
+      const denom = 2 * (y1 - 2 * y2 + y3);
+      if (Math.abs(denom) > 1e-12) {
+        const delta = Math.max(-0.5, Math.min(0.5, (y1 - y3) / denom));
+        refinedLag = bestLag + delta;
+      }
+    }
+
+    const rawBpm = (60 * hopRate) / Math.max(1, refinedLag);
+    const snapped = Math.round(rawBpm * 10) / 10;
+    const nearestInt = Math.round(snapped);
+    const finalBpm = Math.abs(snapped - nearestInt) < 0.22 ? nearestInt : snapped;
+    return Math.max(68, Math.min(168, finalBpm));
+  }
+
+  /**
+   * Comb-filter phase histogram across the track groove to locate the true Beat-1 downbeat phase
+   * even when a track starts with acapella vocals, pads, or silence.
+   */
+  private detectBeatGridOffset(
+    buffer: AudioBuffer,
+    introSample: number,
+    bpm: number
+  ): { beatOffsetSec: number; snappedIntroSec: number } {
+    const sr = buffer.sampleRate;
+    const beatPeriod = 60 / Math.max(55, Math.min(180, bpm || 100));
+    const introSec = Math.max(0, introSample / sr);
+    const duration = buffer.length / sr;
+
+    if (duration < beatPeriod * 2) {
+      return {
+        beatOffsetSec: Number((introSec % beatPeriod).toFixed(4)),
+        snappedIntroSec: Number(introSec.toFixed(3)),
+      };
+    }
+
+    const ch0 = buffer.getChannelData(0);
+    const ch1 = buffer.numberOfChannels > 1 ? buffer.getChannelData(1) : ch0;
+
+    const hopSamples = Math.max(32, Math.round(sr * 0.005)); // 5ms (~200 Hz) phase resolution
+    const hopSec = hopSamples / sr;
+    const scanStartSec = duration > 24 ? Math.max(introSec, duration * 0.15) : introSec;
+    const scanEndSec = duration > 24 ? Math.min(duration - 1, scanStartSec + 36) : duration;
+
+    const startFrame = Math.floor((scanStartSec * sr) / hopSamples);
+    const endFrame = Math.min(
+      Math.floor(buffer.length / hopSamples),
+      Math.floor((scanEndSec * sr) / hopSamples)
+    );
+    if (endFrame - startFrame < 40) {
+      return {
+        beatOffsetSec: Number((introSec % beatPeriod).toFixed(4)),
+        snappedIntroSec: Number(introSec.toFixed(3)),
+      };
+    }
+
+    const lpAlpha = Math.min(0.95, Math.max(0.01, (2 * Math.PI * 150) / sr));
+    let lpState = 0;
+    let prevLow = 0;
+    let prevFull = 0;
+
+    const numBins = 48;
+    const phaseHistogram = new Float32Array(numBins);
+
+    for (let f = startFrame; f < endFrame; f++) {
+      const base = f * hopSamples;
+      let sumLow = 0;
+      let sumFull = 0;
+      for (let i = 0; i < hopSamples && base + i < buffer.length; i++) {
+        const s = 0.5 * (ch0[base + i] + ch1[base + i]);
+        lpState += lpAlpha * (s - lpState);
+        sumLow += lpState * lpState;
+        sumFull += s * s;
+      }
+      const lowRms = Math.sqrt(sumLow / hopSamples);
+      const fullRms = Math.sqrt(sumFull / hopSamples);
+      const onset = Math.max(0, lowRms - prevLow) * 0.78 + Math.max(0, fullRms - prevFull) * 0.22;
+      prevLow = lowRms;
+      prevFull = fullRms;
+
+      const t = f * hopSec;
+      const phase = ((t % beatPeriod) + beatPeriod) % beatPeriod;
+      const bin = Math.min(numBins - 1, Math.floor((phase / beatPeriod) * numBins));
+      phaseHistogram[bin] += onset;
+    }
+
+    // Smooth histogram circularly with a 3-bin kernel so slight human swing hits cleanly
+    let bestBin = 0;
+    let bestEnergy = -1;
+    for (let b = 0; b < numBins; b++) {
+      const prevB = (b - 1 + numBins) % numBins;
+      const nextB = (b + 1) % numBins;
+      const smoothed =
+        phaseHistogram[prevB] * 0.25 + phaseHistogram[b] * 0.5 + phaseHistogram[nextB] * 0.25;
+      if (smoothed > bestEnergy) {
+        bestEnergy = smoothed;
+        bestBin = b;
+      }
+    }
+
+    const beatOffsetSec = Number((((bestBin + 0.5) / numBins) * beatPeriod).toFixed(4));
+
+    // Snap introSec onto the true beat grid (first Beat-1 at or right after introSec - 40ms)
+    let k = Math.ceil((introSec - 0.04 - beatOffsetSec) / beatPeriod);
+    let snappedIntroSec = beatOffsetSec + k * beatPeriod;
+    if (snappedIntroSec < 0) snappedIntroSec += beatPeriod;
+    if (snappedIntroSec > duration - 1) snappedIntroSec = introSec;
+
+    return {
+      beatOffsetSec,
+      snappedIntroSec: Number(snappedIntroSec.toFixed(3)),
+    };
+  }
+
+  /**
+   * Finds high-energy Chorus ("Coro") plateaus & phrase-quantized 4-bar DJ mix points:
+   * - coroStartSec: strongest chorus plateau in the 2nd half (or late peak on short clips)
+   * - coroMixOutSec: phrase-aligned exit right at the tail of the final chorus for seamless DJ mixing
+   * - coroDropInSec: strongest early chorus/drop entry point snapped to the beat grid
+   */
+  private detectChorusAndMixPoints(
+    buffer: AudioBuffer,
+    introBeatSec: number,
+    beatOffsetSec: number,
+    bpm: number
+  ): {
+    coroStartSec: number;
+    coroMixOutSec: number;
+    coroDropInSec: number;
+  } {
+    const sr = buffer.sampleRate;
+    const duration = buffer.length / sr;
+    const beatPeriod = 60 / Math.max(55, Math.min(180, bpm || 100));
+    const barSec = beatPeriod * 4;
+
+    const snapToBar = (sec: number, minSec: number, maxSec: number) => {
+      const clamped = Math.max(minSec, Math.min(maxSec, sec));
+      const k = Math.round((clamped - beatOffsetSec) / barSec);
+      const barTime = beatOffsetSec + k * barSec;
+      return Number(Math.max(minSec, Math.min(maxSec, barTime)).toFixed(3));
+    };
+
+    if (duration < 14) {
+      const coroStartSec = snapToBar(duration * 0.42, introBeatSec + 0.5, Math.max(introBeatSec + 1, duration - 4));
+      const coroMixOutSec = snapToBar(duration * 0.62, introBeatSec + 1, Math.max(introBeatSec + 1.5, duration - 4.5));
+      return {
+        coroStartSec,
+        coroMixOutSec,
+        coroDropInSec: introBeatSec,
+      };
+    }
+
+    const ch0 = buffer.getChannelData(0);
+    const ch1 = buffer.numberOfChannels > 1 ? buffer.getChannelData(1) : ch0;
+
+    // 0.5s RMS energy curve across the full song
+    const blockSec = 0.5;
+    const blockSamples = Math.max(256, Math.round(sr * blockSec));
+    const numBlocks = Math.floor(buffer.length / blockSamples);
+    if (numBlocks < 8) {
+      const coroMixOutSec = snapToBar(duration * 0.68, introBeatSec + 2, duration - 5);
+      return {
+        coroStartSec: coroMixOutSec,
+        coroMixOutSec,
+        coroDropInSec: introBeatSec,
+      };
+    }
+
+    const rmsCurve = new Float32Array(numBlocks);
+    let maxRms = 0;
+    for (let b = 0; b < numBlocks; b++) {
+      const base = b * blockSamples;
+      const stride = Math.max(1, Math.floor(blockSamples / 128));
+      let sq = 0;
+      let cnt = 0;
+      for (let i = 0; i < blockSamples; i += stride) {
+        const s = 0.5 * (ch0[base + i] + ch1[base + i]);
+        sq += s * s;
+        cnt++;
+      }
+      const r = Math.sqrt(sq / Math.max(1, cnt));
+      rmsCurve[b] = r;
+      if (r > maxRms) maxRms = r;
+    }
+
+    if (maxRms < 0.005) {
+      const coroMixOutSec = snapToBar(duration * 0.68, introBeatSec + 2, duration - 6);
+      return {
+        coroStartSec: coroMixOutSec,
+        coroMixOutSec,
+        coroDropInSec: introBeatSec,
+      };
+    }
+
+    // 4-second smoothed energy curve (8 blocks) to detect chorus plateaus
+    const smoothWin = Math.min(8, Math.max(3, Math.floor(numBlocks / 6)));
+    const smoothCurve = new Float32Array(numBlocks);
+    for (let b = 0; b < numBlocks; b++) {
+      let sum = 0;
+      let cnt = 0;
+      const half = Math.floor(smoothWin / 2);
+      for (let k = Math.max(0, b - half); k <= Math.min(numBlocks - 1, b + half); k++) {
+        sum += rmsCurve[k];
+        cnt++;
+      }
+      smoothCurve[b] = sum / Math.max(1, cnt);
+    }
+
+    // Early Drop / Chorus-In in first half (10% .. 52%)
+    const earlyStartB = Math.max(0, Math.floor(numBlocks * 0.1));
+    const earlyEndB = Math.max(earlyStartB + 1, Math.floor(numBlocks * 0.52));
+    let bestEarlyB = earlyStartB;
+    let bestEarlyVal = -1;
+    for (let b = earlyStartB; b < earlyEndB; b++) {
+      if (smoothCurve[b] > bestEarlyVal) {
+        bestEarlyVal = smoothCurve[b];
+        bestEarlyB = b;
+      }
+    }
+    const coroDropInSec = snapToBar(
+      bestEarlyB * blockSec,
+      introBeatSec,
+      Math.max(introBeatSec + 1, duration * 0.55)
+    );
+
+    // Late Chorus ("Coro final") in second half (44% .. 86%)
+    const minOutTailSec = duration < 45 ? Math.max(5.5, duration * 0.24) : Math.max(12, barSec * 4);
+    const maxMixOutSec = Math.max(introBeatSec + 4, duration - minOutTailSec);
+    const minMixOutSec = Math.max(introBeatSec + 2, duration * 0.44);
+
+    const lateStartB = Math.max(0, Math.floor((minMixOutSec / duration) * numBlocks));
+    const lateEndB = Math.min(
+      numBlocks - 1,
+      Math.floor((Math.max(minMixOutSec + 2, duration - 6) / duration) * numBlocks)
+    );
+
+    let peakLateB = lateStartB;
+    let peakLateVal = -1;
+    for (let b = lateStartB; b <= lateEndB; b++) {
+      if (smoothCurve[b] >= peakLateVal) {
+        peakLateVal = smoothCurve[b];
+        peakLateB = b;
+      }
+    }
+
+    // Step backward from peak to find start of this chorus plateau (>= 78% of chorus peak)
+    const plateauThresh = peakLateVal * 0.78;
+    let coroStartB = peakLateB;
+    while (coroStartB > lateStartB && smoothCurve[coroStartB - 1] >= plateauThresh) {
+      coroStartB--;
+    }
+    const rawCoroStartSec = coroStartB * blockSec;
+
+    // Step forward from chorus start across the hook (~8-16s) to pick the ideal DJ mix-out phrase:
+    // Blend starts right in the tail/exit of the last chorus while rhythm energy is still driving!
+    const chorusHoldSec = duration < 45 ? Math.min(5, duration * 0.16) : Math.min(16, barSec * 4);
+    let coroEndB = Math.min(numBlocks - 1, coroStartB + Math.round(chorusHoldSec / blockSec));
+    while (
+      coroEndB < lateEndB &&
+      smoothCurve[coroEndB] >= peakLateVal * 0.74 &&
+      (coroEndB - coroStartB) * blockSec < (duration < 45 ? 8 : 22)
+    ) {
+      coroEndB++;
+    }
+
+    const rawMixOutSec = Math.min(maxMixOutSec, Math.max(minMixOutSec, coroEndB * blockSec));
+    const coroStartSec = snapToBar(rawCoroStartSec, introBeatSec + 1, maxMixOutSec);
+    const coroMixOutSec = snapToBar(rawMixOutSec, minMixOutSec, maxMixOutSec);
+
+    return {
+      coroStartSec,
+      coroMixOutSec,
+      coroDropInSec,
+    };
   }
 
   private detectBestLoopBeats(
@@ -967,11 +1391,19 @@ class ShowLiveAudioEngine {
     return 4;
   }
 
-  private detectOutroStartSample(buffer: AudioBuffer, introSample: number): number {
+  private detectOutroStartSample(
+    buffer: AudioBuffer,
+    introSample: number,
+    beatOffsetSec: number,
+    bpm: number
+  ): number {
     const sr = buffer.sampleRate;
     const durationSamples = buffer.length;
+    const beatPeriod = 60 / Math.max(55, Math.min(180, bpm || 100));
+    const barSec = beatPeriod * 4;
+
     if (durationSamples < sr * 8) {
-      return Math.max(introSample + 1, Math.round(durationSamples * 0.72));
+      return Math.max(introSample + 1, Math.round(durationSamples * 0.7));
     }
 
     const ch0 = buffer.getChannelData(0);
@@ -1018,10 +1450,18 @@ class ShowLiveAudioEngine {
       }
     }
 
-    // Ideal DJ outro point sits ~10s before trailing decay/silence completes
-    const idealSample = lastLoudEndSample - Math.round(sr * 10);
+    // Ideal DJ outro point sits ~14s (or 7s on short clips) before trailing silence, snapped to 4-bar phrase
+    const leadSec = durationSamples / sr < 45 ? 7 : 14;
+    const rawOutroSec = Math.max(
+      (introSample / sr) + 4,
+      Math.min((durationSamples / sr) - 4, lastLoudEndSample / sr - leadSec)
+    );
+    const k = Math.round((rawOutroSec - beatOffsetSec) / barSec);
+    const snappedSec = beatOffsetSec + k * barSec;
+    const idealSample = Math.round(snappedSec * sr);
+
     const minValid = Math.max(introSample + Math.round(sr * 4), Math.round(durationSamples * 0.52));
-    const maxValid = Math.max(minValid, durationSamples - Math.round(sr * 2));
+    const maxValid = Math.max(minValid, durationSamples - Math.round(sr * 3.5));
     return Math.max(minValid, Math.min(maxValid, idealSample));
   }
 
@@ -1029,21 +1469,47 @@ class ShowLiveAudioEngine {
     introStartSec: number;
     outroStartSec: number;
     beatOffsetSec: number;
+    coroStartSec: number;
+    coroMixOutSec: number;
+    coroDropInSec: number;
     detectedBpm: number;
     autoBeats: 4 | 8;
   } {
     const cached = this.bufferAnalysisCache.get(buffer);
     if (cached) return cached;
 
-    const startSample = this.detectIntroStartSample(buffer);
-    const detectedBpm = this.estimateBpmFromBuffer(buffer, startSample);
-    const autoBeats = this.detectBestLoopBeats(buffer, startSample, detectedBpm);
-    const outroSample = this.detectOutroStartSample(buffer, startSample);
-    const introStartSec = Number((startSample / buffer.sampleRate).toFixed(3));
+    const rawIntroSample = this.detectIntroStartSample(buffer);
+    const detectedBpm = this.estimateBpmFromBuffer(buffer, rawIntroSample);
+    const { beatOffsetSec, snappedIntroSec } = this.detectBeatGridOffset(
+      buffer,
+      rawIntroSample,
+      detectedBpm
+    );
+    const snappedIntroSample = Math.min(
+      buffer.length - 1,
+      Math.round(snappedIntroSec * buffer.sampleRate)
+    );
+    const autoBeats = this.detectBestLoopBeats(buffer, snappedIntroSample, detectedBpm);
+    const outroSample = this.detectOutroStartSample(
+      buffer,
+      snappedIntroSample,
+      beatOffsetSec,
+      detectedBpm
+    );
+    const { coroStartSec, coroMixOutSec, coroDropInSec } = this.detectChorusAndMixPoints(
+      buffer,
+      snappedIntroSec,
+      beatOffsetSec,
+      detectedBpm
+    );
+
     const result = {
-      introStartSec,
+      introStartSec: snappedIntroSec,
       outroStartSec: Number((outroSample / buffer.sampleRate).toFixed(3)),
-      beatOffsetSec: introStartSec,
+      beatOffsetSec,
+      coroStartSec,
+      coroMixOutSec,
+      coroDropInSec,
       detectedBpm,
       autoBeats,
     };
@@ -1055,6 +1521,9 @@ class ShowLiveAudioEngine {
     introStartSec: number;
     outroStartSec: number;
     beatOffsetSec: number;
+    coroStartSec: number;
+    coroMixOutSec: number;
+    coroDropInSec: number;
     detectedBpm: number;
     autoBeats: 4 | 8;
   } | null> {
@@ -1139,6 +1608,9 @@ class ShowLiveAudioEngine {
       introStartSec,
       outroStartSec: Math.max(introStartSec + 2, clipEndSec - 2),
       beatOffsetSec: introStartSec,
+      coroStartSec: Math.max(introStartSec + 1, clipEndSec * 0.5),
+      coroMixOutSec: Math.max(introStartSec + 2, clipEndSec - 2),
+      coroDropInSec: introStartSec,
       detectedBpm,
       autoBeats,
     });
